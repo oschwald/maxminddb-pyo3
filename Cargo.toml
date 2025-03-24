@@ -1,0 +1,16 @@
+[package]
+name = "maxminddb-pyo3"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "maxminddb_pyo3"
+crate-type = ["cdylib"]
+
+[dependencies]
+maxminddb = "0.24.0"
+pyo3 = "0.24.0"
+serde_json = "1.0"
+
+[features]
+default = ["pyo3/extension-module"]
