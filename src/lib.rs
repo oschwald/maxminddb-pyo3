@@ -1,8 +1,10 @@
 use maxminddb::Reader as MaxMindReader;
-use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::{
+    exceptions::PyValueError,
+    prelude::*,
+    types::{PyDict, PyList},
+};
 use serde_json::Value;
-use std::net::IpAddr;
 use std::path::Path;
 
 /// A Python wrapper around the MaxMind DB reader.
@@ -19,17 +21,14 @@ impl Reader {
     }
 
     fn get(&self, py: Python, ip: &str) -> PyResult<PyObject> {
-        let ip_addr: IpAddr = ip
+        let ip_addr = ip
             .parse()
-            .map_err(|_| PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid IP address"))?;
+            .map_err(|_| PyValueError::new_err("Invalid IP address"))?;
 
-        // Deserialize into serde_json::Value
         match self.reader.lookup::<Value>(ip_addr) {
-            Ok(data) => Ok(self.convert_to_py(py, &data)),
-            Err(maxminddb::MaxMindDBError::AddressNotFoundError(_)) => Ok(py.None()),
-            Err(_) => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                "Lookup error",
-            )),
+            Ok(Some(data)) => Ok(self.convert_to_py(py, &data)),
+            Ok(None) => Ok(py.None()),
+            Err(_) => Err(PyValueError::new_err("Lookup error")),
         }
     }
 }
