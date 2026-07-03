@@ -378,8 +378,8 @@ impl ReaderSource {
     #[inline]
     fn metadata(&self) -> &maxminddb_crate::Metadata {
         match self {
-            ReaderSource::Mmap(reader) => &reader.metadata,
-            ReaderSource::Memory(reader) => &reader.metadata,
+            ReaderSource::Mmap(reader) => reader.metadata(),
+            ReaderSource::Memory(reader) => reader.metadata(),
         }
     }
 }
