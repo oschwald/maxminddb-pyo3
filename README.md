@@ -256,6 +256,9 @@ uv run python benchmarks/compare_refs.py --baseline-ref origin/main --candidate-
 # CI-friendly comparison with JSON output and a 5% regression threshold
 uv run python benchmarks/compare_refs.py --json-output bench.json --max-regression-pct 5
 
+# Force successful lookups, including when using a sparse test database
+uv run python benchmarks/compare_refs.py --workload database-hits
+
 # Path cache profiling: cached tuple, new tuple per call, list path per call
 uv run python benchmarks/compare_refs.py --case get_path --case get_path_new_tuple --case get_path_list
 ```

@@ -36,6 +36,18 @@ def generate_ips(count: int) -> list[str]:
     ]
 
 
+def generate_database_hit_ips(reader, count: int) -> list[str]:
+    sample_size = min(count, 4096)
+    samples = []
+    for network, _record in reader:
+        samples.append(str(network.network_address))
+        if len(samples) >= sample_size:
+            break
+    if not samples:
+        raise RuntimeError("database contains no records to benchmark")
+    return [samples[index % len(samples)] for index in range(count)]
+
+
 def chunks(values: list[str], size: int) -> list[list[str]]:
     return [values[start : start + size] for start in range(0, len(values), size)]
 
@@ -48,10 +60,14 @@ def main() -> None:
     parser.add_argument("--batch-size", required=True, type=int)
     parser.add_argument("--repeats", required=True, type=int)
     parser.add_argument("--warmups", required=True, type=int)
+    parser.add_argument("--workload", required=True, choices=("random", "database-hits"))
     args = parser.parse_args()
 
     reader = maxminddb_rust.open_database(args.file)
-    ips = generate_ips(args.count)
+    if args.workload == "database-hits":
+        ips = generate_database_hit_ips(reader, args.count)
+    else:
+        ips = generate_ips(args.count)
     batches = chunks(ips, args.batch_size)
     path = ("country", "iso_code")
     path_items = ["country", "iso_code"]
@@ -224,6 +240,7 @@ def benchmark_case(
     batch_size: int,
     repeats: int,
     warmups: int,
+    workload: str,
     root: Path,
     verbose: bool,
 ) -> dict[str, Any]:
@@ -244,6 +261,8 @@ def benchmark_case(
             str(repeats),
             "--warmups",
             str(warmups),
+            "--workload",
+            workload,
         ],
         cwd=root,
         verbose=verbose,
@@ -283,6 +302,7 @@ def build_summary(
     batch_size: int,
     repeats: int,
     warmups: int,
+    workload: str,
     cases: list[str],
     baseline_results: dict[str, dict[str, Any]],
     candidate_results: dict[str, dict[str, Any]],
@@ -326,6 +346,7 @@ def build_summary(
         "batch_size": batch_size,
         "repeats": repeats,
         "warmups": warmups,
+        "workload": workload,
         "max_regression_pct": max_regression_pct,
         "cases": case_summaries,
         "regressions": regressions,
@@ -386,6 +407,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--repeats", type=int, default=5)
     parser.add_argument("--warmups", type=int, default=1)
+    parser.add_argument(
+        "--workload",
+        choices=("random", "database-hits"),
+        default="random",
+        help="address workload to benchmark",
+    )
     parser.add_argument(
         "--case",
         action="append",
@@ -475,6 +502,7 @@ def main() -> None:
                     batch_size=args.batch_size,
                     repeats=args.repeats,
                     warmups=args.warmups,
+                    workload=args.workload,
                     root=root,
                     verbose=args.verbose,
                 )
@@ -504,6 +532,7 @@ def main() -> None:
         batch_size=args.batch_size,
         repeats=args.repeats,
         warmups=args.warmups,
+        workload=args.workload,
         cases=cases,
         baseline_results=results["baseline"],
         candidate_results=results["candidate"],
@@ -525,6 +554,7 @@ def main() -> None:
                 Batch size: {args.batch_size:,}
                 Repeats: {args.repeats:,}
                 Warmups: {args.warmups:,}
+                Workload: {args.workload}
                 """
             ).rstrip()
         )

@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Benchmarks now default to commonly installed databases under
   `/var/lib/GeoIP`, while retaining `--file` overrides for custom paths.
 
+### Performance
+
+- Ref-comparison benchmarks can now generate successful lookups from database
+  contents, and CI uses this workload to exercise record decoding.
+
 ## [0.6.0] - 2026-06-14
 
 ### Added
