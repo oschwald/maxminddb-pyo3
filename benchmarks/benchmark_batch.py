@@ -8,6 +8,8 @@ import timeit
 
 import maxminddb_rust
 
+from _common import resolve_database
+
 
 def generate_ips(count):
     random.seed(0)
@@ -20,13 +22,18 @@ def generate_ips(count):
 parser = argparse.ArgumentParser(description="Benchmark maxminddb batch lookups.")
 parser.add_argument("--count", default=250000, type=int, help="number of lookups")
 parser.add_argument("--batch-size", default=100, type=int, help="batch size")
-parser.add_argument("--file", default="GeoIP2-City.mmdb", help="path to mmdb file")
+parser.add_argument(
+    "--file",
+    default=None,
+    help="path to mmdb file (defaults to an installed database under /var/lib/GeoIP)",
+)
 
 args = parser.parse_args()
 if args.batch_size <= 0:
     raise ValueError("--batch-size must be positive")
 
-reader = maxminddb_rust.open_database(args.file)
+database = resolve_database(args.file)
+reader = maxminddb_rust.open_database(database)
 ips = generate_ips(args.count)
 batches = [
     ips[start : start + args.batch_size]

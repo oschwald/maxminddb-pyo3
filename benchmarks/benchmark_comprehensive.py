@@ -9,7 +9,10 @@ import random
 import socket
 import struct
 import timeit
+
 import maxminddb_rust
+
+from _common import default_databases, resolve_database
 
 
 def generate_ips(count):
@@ -53,6 +56,14 @@ def main():
     parser.add_argument(
         "--count", default=250000, type=int, help="number of lookups per test"
     )
+    parser.add_argument(
+        "--file",
+        action="append",
+        help=(
+            "path to an mmdb file; may be repeated "
+            "(defaults to installed databases under /var/lib/GeoIP)"
+        ),
+    )
     args = parser.parse_args()
 
     print("=" * 70)
@@ -62,10 +73,16 @@ def main():
     print("=" * 70)
     print()
 
+    if args.file:
+        database_paths = [resolve_database(path) for path in args.file]
+    else:
+        database_paths = default_databases()
+        if not database_paths:
+            resolve_database(None)  # Raise the shared, actionable error.
+
     databases = [
-        ("/var/lib/GeoIP/GeoLite2-Country.mmdb", "GeoLite2-Country (9.6MB)"),
-        ("/var/lib/GeoIP/GeoLite2-City.mmdb", "GeoLite2-City (61MB)"),
-        ("/var/lib/GeoIP/GeoIP2-City.mmdb", "GeoIP2-City (117MB)"),
+        (str(path), f"{path.name} ({path.stat().st_size / 1024 / 1024:.1f} MiB)")
+        for path in database_paths
     ]
 
     results = []

@@ -11,6 +11,8 @@ import time
 
 import maxminddb_rust
 
+from _common import default_databases, resolve_database
+
 
 def chunk_ranges(total: int, workers: int) -> list[tuple[int, int]]:
     base = total // workers
@@ -44,15 +46,20 @@ def main() -> None:
     if not worker_counts or any(w <= 0 for w in worker_counts):
         raise ValueError("--workers must contain one or more positive integers")
 
-    databases = (
-        [(args.file, args.file)]
-        if args.file
-        else [
-            ("/var/lib/GeoIP/GeoLite2-Country.mmdb", "GeoLite2-Country (9.6MB)"),
-            ("/var/lib/GeoIP/GeoLite2-City.mmdb", "GeoLite2-City (61MB)"),
-            ("/var/lib/GeoIP/GeoIP2-City.mmdb", "GeoIP2-City (117MB)"),
-        ]
-    )
+    if args.file:
+        paths = [resolve_database(args.file)]
+    else:
+        paths = default_databases()
+        if not paths:
+            resolve_database(None)  # Raise the shared, actionable error.
+
+    databases = [
+        (
+            str(path),
+            f"{path.name} ({path.stat().st_size / 1024 / 1024:.1f} MiB)",
+        )
+        for path in paths
+    ]
 
     random.seed(0)
     ips = [

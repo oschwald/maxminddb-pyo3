@@ -227,24 +227,28 @@ uv run python examples/batch_processing.py
 ## Benchmarking
 
 Benchmark scripts are consolidated in the `benchmarks/` directory.
+They default to commonly installed databases under `/var/lib/GeoIP`, preferring
+GeoLite2 City when available. Pass `--file /path/to/database.mmdb` to benchmark
+a different database. The comprehensive benchmark accepts `--file` more than
+once.
 
 Run the included benchmarks after building from source:
 
 ```bash
 # Single lookup benchmark
-uv run python benchmarks/benchmark.py --file /var/lib/GeoIP/GeoIP2-City.mmdb --count 250000
+uv run python benchmarks/benchmark.py --count 250000
 
 # Comprehensive benchmark across multiple databases
 uv run python benchmarks/benchmark_comprehensive.py --count 250000
 
 # Batch lookup benchmark
-uv run python benchmarks/benchmark_batch.py --file /var/lib/GeoIP/GeoIP2-City.mmdb --batch-size 100
+uv run python benchmarks/benchmark_batch.py --batch-size 100
 
 # Threaded lookup benchmark (shared Reader across Python threads, default DB set)
 uv run python benchmarks/benchmark_parallel.py --count 500000 --workers 1,2,4,8
 
 # get() vs get_path() benchmark
-uv run python benchmarks/benchmark_path.py --file /var/lib/GeoIP/GeoLite2-City.mmdb --count 250000
+uv run python benchmarks/benchmark_path.py --count 250000
 
 # Compare benchmark throughput between two git refs
 uv run python benchmarks/compare_refs.py --baseline-ref origin/main --candidate-ref HEAD

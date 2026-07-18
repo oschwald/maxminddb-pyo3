@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from _common import resolve_database
+
 
 BENCHMARK_RUNNER = r"""
 from __future__ import annotations
@@ -374,8 +376,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidate-ref", default="HEAD")
     parser.add_argument(
         "--file",
-        default="tests/data/test-data/GeoIP2-City-Test.mmdb",
-        help="path to the mmdb file to benchmark",
+        default=None,
+        help=(
+            "path to the mmdb file to benchmark "
+            "(defaults to an installed database under /var/lib/GeoIP)"
+        ),
     )
     parser.add_argument("--count", type=int, default=250_000)
     parser.add_argument("--batch-size", type=int, default=100)
@@ -410,7 +415,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     root = repo_root()
-    database = Path(args.file)
+    database = resolve_database(args.file)
     if not database.is_absolute():
         database = root / database
     if args.batch_size <= 0:
