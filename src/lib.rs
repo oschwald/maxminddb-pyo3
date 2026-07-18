@@ -25,7 +25,6 @@ use std::{
     ffi::OsString,
     fmt,
     fs::File,
-    io::Read as IoRead,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     path::{Path, PathBuf},
     str::FromStr,
@@ -1487,11 +1486,10 @@ fn open_database_mmap(path: &Path) -> PyResult<Reader> {
 /// Open a MaxMind DB by loading entire file into memory (MODE_MEMORY)
 fn open_database_memory(path: &Path) -> PyResult<Reader> {
     let reader = load_reader(path, |path| {
-        let mut file = open_file(path)?;
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)
-            .map_err(|e| PyIOError::new_err(format!("Failed to read database file: {e}")))?;
-        Ok(buffer)
+        std::fs::read(path).map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => PyFileNotFoundError::new_err(e.to_string()),
+            _ => PyIOError::new_err(format!("Failed to read database file: {e}")),
+        })
     })?;
 
     Ok(create_reader(ReaderSource::Memory(reader)))

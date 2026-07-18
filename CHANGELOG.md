@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   allocating temporary packed byte strings.
 - Equivalent immutable tuple paths now reuse parsed path-cache entries even
   when callers construct a new tuple for each lookup.
+- Memory-mode database opening uses the standard preallocated whole-file read
+  path.
 
 ### Fixed
 
