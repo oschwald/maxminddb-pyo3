@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Benchmarks now default to commonly installed databases under
   `/var/lib/GeoIP`, while retaining `--file` overrides for custom paths.
+- CI now tests every declared CPython version from 3.8 through 3.14, plus the
+  free-threaded 3.14 build, and releases include a free-threaded 3.14 wheel.
+- The threaded benchmark now gives each worker a private input chunk, avoiding
+  shared-list contention on free-threaded Python.
 
 ### Performance
 
