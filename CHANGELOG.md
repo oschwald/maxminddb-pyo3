@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contents, and CI uses this workload to exercise record decoding.
 - Lookups of `ipaddress.IPv4Address` and `ipaddress.IPv6Address` objects avoid
   allocating temporary packed byte strings.
+- Equivalent immutable tuple paths now reuse parsed path-cache entries even
+  when callers construct a new tuple for each lookup.
 
 ## [0.6.0] - 2026-06-14
 

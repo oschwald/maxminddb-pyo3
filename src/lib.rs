@@ -571,7 +571,7 @@ impl Reader {
         let parsed_ip = self.parse_lookup_ip(ip_address)?;
 
         // Parse path (cache tuple paths, which are immutable and commonly reused)
-        let owned_path = self.get_or_parse_path(py, path)?;
+        let owned_path = self.get_or_parse_path(path)?;
         let path_elements = path_elements_from_owned_path(&owned_path);
 
         let reader = self.reader.load();
@@ -719,7 +719,7 @@ impl Reader {
             ));
         }
 
-        let owned_path = self.get_or_parse_path(py, path)?;
+        let owned_path = self.get_or_parse_path(path)?;
         let path_elements = path_elements_from_owned_path(&owned_path);
 
         if let Ok(list) = ips.cast::<PyList>() {
@@ -943,25 +943,19 @@ impl Reader {
         }
     }
 
-    fn get_or_parse_path(
-        &self,
-        py: Python,
-        path: &Bound<'_, PyAny>,
-    ) -> PyResult<Arc<Vec<OwnedPathElement>>> {
+    fn get_or_parse_path(&self, path: &Bound<'_, PyAny>) -> PyResult<Arc<Vec<OwnedPathElement>>> {
         const PATH_CACHE_MAX_ENTRIES: usize = 64;
 
         let Ok(path_tuple) = path.cast::<PyTuple>() else {
             return Ok(Arc::new(parse_path(path)?));
         };
-        let path_ptr = path_tuple.as_ptr();
-
-        if let Some(cached_path) = self.lookup_cached_path(py, path_ptr) {
+        if let Some(cached_path) = self.lookup_cached_path(path_tuple) {
             return Ok(cached_path);
         }
 
         let parsed = Arc::new(parse_path(path)?);
         if let Ok(mut cache) = self.path_cache.lock() {
-            if let Some(cached_path) = Self::lookup_cached_path_in_cache(py, path_ptr, &cache) {
+            if let Some(cached_path) = Self::lookup_cached_path_in_cache(path_tuple, &cache) {
                 return Ok(cached_path);
             }
             if cache.len() >= PATH_CACHE_MAX_ENTRIES {
@@ -981,26 +975,27 @@ impl Reader {
     }
 
     #[inline]
-    fn lookup_cached_path(
-        &self,
-        py: Python,
-        path_ptr: *mut pyo3::ffi::PyObject,
-    ) -> Option<Arc<Vec<OwnedPathElement>>> {
+    fn lookup_cached_path(&self, path: &Bound<'_, PyTuple>) -> Option<Arc<Vec<OwnedPathElement>>> {
         self.path_cache
             .lock()
             .ok()
-            .and_then(|cache| Self::lookup_cached_path_in_cache(py, path_ptr, &cache))
+            .and_then(|cache| Self::lookup_cached_path_in_cache(path, &cache))
     }
 
     #[inline]
     fn lookup_cached_path_in_cache(
-        py: Python,
-        path_ptr: *mut pyo3::ffi::PyObject,
+        path: &Bound<'_, PyTuple>,
         cache: &VecDeque<CachedPath>,
     ) -> Option<Arc<Vec<OwnedPathElement>>> {
-        cache.iter().find_map(|(cached_tuple, cached_path)| {
-            (cached_tuple.bind(py).as_ptr() == path_ptr).then(|| Arc::clone(cached_path))
-        })
+        cache
+            .iter()
+            .find(|(cached_tuple, _)| cached_tuple.bind(path.py()).as_ptr() == path.as_ptr())
+            .or_else(|| {
+                cache
+                    .iter()
+                    .find(|(_, cached_path)| path_tuple_matches_owned(path, cached_path.as_slice()))
+            })
+            .map(|(_, cached_path)| Arc::clone(cached_path))
     }
 
     fn get_many_from_items<'py>(
@@ -1035,6 +1030,37 @@ impl Reader {
         }
         Ok(objects)
     }
+}
+
+fn path_tuple_matches_owned(path: &Bound<'_, PyTuple>, cached: &[OwnedPathElement]) -> bool {
+    path.len() == cached.len()
+        && path
+            .iter()
+            .zip(cached)
+            .all(|(item, cached_element)| match cached_element {
+                OwnedPathElement::Key(cached_key) => item
+                    .cast::<PyString>()
+                    .ok()
+                    .and_then(|value| value.to_str().ok())
+                    .is_some_and(|value| value == cached_key),
+                OwnedPathElement::Index(cached_index) => {
+                    !item.is_instance_of::<PyBool>()
+                        && item
+                            .extract::<usize>()
+                            .is_ok_and(|index| index == *cached_index)
+                }
+                OwnedPathElement::IndexFromEnd(cached_index) => {
+                    !item.is_instance_of::<PyBool>()
+                        && item
+                            .extract::<isize>()
+                            .ok()
+                            .map(signed_index_to_owned_path_element)
+                            .is_some_and(|element| match element {
+                                OwnedPathElement::IndexFromEnd(index) => index == *cached_index,
+                                OwnedPathElement::Key(_) | OwnedPathElement::Index(_) => false,
+                            })
+                }
+            })
 }
 
 #[inline]
