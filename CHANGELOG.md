@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Ref-comparison benchmarks can now generate successful lookups from database
   contents, and CI uses this workload to exercise record decoding.
+- Lookups of `ipaddress.IPv4Address` and `ipaddress.IPv6Address` objects avoid
+  allocating temporary packed byte strings.
 
 ## [0.6.0] - 2026-06-14
 

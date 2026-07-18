@@ -18,6 +18,7 @@ BENCHMARK_RUNNER = r"""
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import random
 import socket
@@ -89,6 +90,14 @@ def main() -> None:
                 reader.get_many(batch)
             return len(ips)
 
+    elif args.case == "get_ipaddress":
+        ip_objects = [ipaddress.ip_address(ip) for ip in ips]
+
+        def run_once() -> int:
+            for ip in ip_objects:
+                reader.get(ip)
+            return len(ip_objects)
+
     elif args.case == "get_path":
         if not hasattr(reader, "get_path"):
             print(json.dumps({"supported": False}))
@@ -108,6 +117,14 @@ def main() -> None:
             for ip in ips:
                 reader.get_path(ip, tuple(path_items))
             return len(ips)
+
+    elif args.case == "get_path_ipaddress":
+        ip_objects = [ipaddress.ip_address(ip) for ip in ips]
+
+        def run_once() -> int:
+            for ip in ip_objects:
+                reader.get_path(ip, path)
+            return len(ip_objects)
 
     elif args.case == "get_path_list":
         if not hasattr(reader, "get_path"):
@@ -175,7 +192,13 @@ if __name__ == "__main__":
 
 
 DEFAULT_CASES = ("get", "get_many", "get_path", "get_many_path", "iterate")
-ALL_CASES = (*DEFAULT_CASES, "get_path_new_tuple", "get_path_list")
+ALL_CASES = (
+    *DEFAULT_CASES,
+    "get_ipaddress",
+    "get_path_ipaddress",
+    "get_path_new_tuple",
+    "get_path_list",
+)
 
 
 def run_command(

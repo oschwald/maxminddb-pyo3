@@ -24,7 +24,7 @@ use std::{
     fmt,
     fs::File,
     io::Read as IoRead,
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
     path::Path,
     str::FromStr,
     sync::{Arc, Mutex},
@@ -1296,9 +1296,26 @@ fn parse_ip_address(ip_address: &Bound<'_, PyAny>) -> PyResult<IpAddr> {
 
     // Slow path: Check if it's an ipaddress.IPv4Address or IPv6Address
     let type_name = ip_address.get_type().name()?;
-    if type_name == "IPv4Address" || type_name == "IPv6Address" {
-        let addr = ip_address.extract::<IpAddr>()?;
-        return Ok(addr);
+    if type_name == "IPv4Address" {
+        // The stdlib classes store their numeric address in `_ip`. Reading it
+        // avoids allocating the temporary `packed` bytes used by PyO3's generic
+        // IpAddr conversion. Fall back in case another implementation differs.
+        if let Ok(value) = ip_address
+            .getattr(pyo3::intern!(ip_address.py(), "_ip"))
+            .and_then(|value| value.extract::<u32>())
+        {
+            return Ok(IpAddr::V4(Ipv4Addr::from(value)));
+        }
+        return ip_address.extract::<IpAddr>();
+    }
+    if type_name == "IPv6Address" {
+        if let Ok(value) = ip_address
+            .getattr(pyo3::intern!(ip_address.py(), "_ip"))
+            .and_then(|value| value.extract::<u128>())
+        {
+            return Ok(IpAddr::V6(Ipv6Addr::from(value)));
+        }
+        return ip_address.extract::<IpAddr>();
     }
 
     Err(PyTypeError::new_err(
