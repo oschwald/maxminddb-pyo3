@@ -7,7 +7,8 @@ use memmap2::Mmap;
 use pyo3::{
     conversion::IntoPyObjectExt,
     exceptions::{
-        PyFileNotFoundError, PyIOError, PyOSError, PyRuntimeError, PyTypeError, PyValueError,
+        PyAttributeError, PyFileNotFoundError, PyIOError, PyOSError, PyRuntimeError, PyTypeError,
+        PyValueError,
     },
     prelude::*,
     types::{
@@ -21,11 +22,12 @@ use serde::de::{self, Deserialize, DeserializeSeed, Deserializer, MapAccess, Seq
 use std::{
     cell::RefCell,
     collections::{BTreeMap, VecDeque},
+    ffi::OsString,
     fmt,
     fs::File,
     io::Read as IoRead,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    path::Path,
+    path::{Path, PathBuf},
     str::FromStr,
     sync::{Arc, Mutex},
 };
@@ -914,15 +916,23 @@ impl Reader {
         }
     }
 
-    fn extract_database_path(database: &Bound<'_, PyAny>) -> PyResult<String> {
-        if let Ok(s) = database.extract::<String>() {
-            return Ok(s);
-        }
+    fn extract_database_path(database: &Bound<'_, PyAny>) -> PyResult<PathBuf> {
+        let path = if database.is_instance_of::<PyString>() {
+            database.clone()
+        } else {
+            match database.call_method0("__fspath__") {
+                Ok(path) => path,
+                Err(err) if err.is_instance_of::<PyAttributeError>(database.py()) => {
+                    return Err(PyValueError::new_err(ERR_BAD_DATABASE_ARG));
+                }
+                Err(err) => return Err(err),
+            }
+        };
 
-        match database.call_method0("__fspath__") {
-            Ok(fspath) => fspath.extract::<String>(),
-            Err(_) => Err(PyValueError::new_err(ERR_BAD_DATABASE_ARG)),
+        if let Ok(path) = path.extract::<String>() {
+            return Ok(path.into());
         }
+        path.extract::<OsString>().map(PathBuf::from)
     }
 
     fn resolve_open_mode(mode: i32) -> PyResult<OpenMode> {
@@ -1417,8 +1427,8 @@ fn ipv6_in_ipv4_error(ip: &IpAddr) -> String {
 }
 
 /// Helper function to open a file with appropriate error handling
-fn open_file(path: &str) -> PyResult<File> {
-    File::open(Path::new(path)).map_err(|e| match e.kind() {
+fn open_file(path: &Path) -> PyResult<File> {
+    File::open(path).map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => PyFileNotFoundError::new_err(e.to_string()),
         _ => PyIOError::new_err(e.to_string()),
     })
@@ -1435,28 +1445,33 @@ fn create_reader(source: ReaderSource) -> Reader {
 }
 
 #[inline]
-fn reader_from_source<S: AsRef<[u8]>>(path: &str, source: S) -> PyResult<MaxMindReader<S>> {
+fn reader_from_source<S: AsRef<[u8]>>(
+    source_name: impl fmt::Display,
+    source: S,
+) -> PyResult<MaxMindReader<S>> {
     MaxMindReader::from_source(source).map_err(|_| {
         InvalidDatabaseError::new_err(format!(
             "Error opening database file ({}). Is this a valid MaxMind DB file?",
-            path
+            source_name
         ))
     })
 }
 
 #[inline]
-fn load_reader<F, S>(path: &str, load_source: F) -> PyResult<MaxMindReader<S>>
+fn load_reader<F, S>(path: &Path, load_source: F) -> PyResult<MaxMindReader<S>>
 where
-    F: FnOnce(&str) -> PyResult<S> + Send,
+    F: FnOnce(&Path) -> PyResult<S> + Send,
     S: AsRef<[u8]> + Send,
 {
     Python::attach(|py| {
-        py.detach(|| load_source(path).and_then(|source| reader_from_source(path, source)))
+        py.detach(|| {
+            load_source(path).and_then(|source| reader_from_source(path.display(), source))
+        })
     })
 }
 
 /// Open a MaxMind DB using memory-mapped files (MODE_MMAP)
-fn open_database_mmap(path: &str) -> PyResult<Reader> {
+fn open_database_mmap(path: &Path) -> PyResult<Reader> {
     let reader = load_reader(path, |path| {
         let file = open_file(path)?;
         // Safety: The mmap is read-only and the file won't be modified.
@@ -1470,7 +1485,7 @@ fn open_database_mmap(path: &str) -> PyResult<Reader> {
 }
 
 /// Open a MaxMind DB by loading entire file into memory (MODE_MEMORY)
-fn open_database_memory(path: &str) -> PyResult<Reader> {
+fn open_database_memory(path: &Path) -> PyResult<Reader> {
     let reader = load_reader(path, |path| {
         let mut file = open_file(path)?;
         let mut buffer = Vec::new();

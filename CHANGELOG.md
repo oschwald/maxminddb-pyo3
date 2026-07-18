@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Equivalent immutable tuple paths now reuse parsed path-cache entries even
   when callers construct a new tuple for each lookup.
 
+### Fixed
+
+- Database paths preserve platform filesystem encoding, including
+  surrogate-escaped Unix filenames, and exceptions from `__fspath__` are no
+  longer replaced with a generic argument error.
+
 ## [0.6.0] - 2026-06-14
 
 ### Added

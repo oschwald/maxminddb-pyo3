@@ -161,6 +161,17 @@ def main() -> None:
                     break
             return operations
 
+    elif args.case == "open_mmap":
+        reader.close()
+
+        def run_once() -> int:
+            for _ in range(args.count):
+                opened = maxminddb_rust.open_database(
+                    args.file, maxminddb_rust.MODE_MMAP
+                )
+                opened.close()
+            return args.count
+
     else:
         raise ValueError(f"unknown benchmark case: {args.case}")
 
@@ -198,6 +209,7 @@ ALL_CASES = (
     "get_path_ipaddress",
     "get_path_new_tuple",
     "get_path_list",
+    "open_mmap",
 )
 
 
