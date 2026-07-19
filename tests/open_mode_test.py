@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -63,7 +64,10 @@ def test_mode_file_opens_pathlike_database() -> None:
         reader.close()
 
 
-@pytest.mark.skipif(os.name == "nt", reason="requires a non-UTF-8 Unix filename")
+@pytest.mark.skipif(
+    os.name == "nt" or sys.platform == "darwin",
+    reason="requires a filesystem accepting non-UTF-8 filenames",
+)
 @pytest.mark.parametrize("mode", [maxminddb_rust.MODE_MMAP, maxminddb_rust.MODE_FILE])
 def test_path_with_surrogate_escape(mode: int, tmp_path: Path) -> None:
     db_path = os.path.join(
