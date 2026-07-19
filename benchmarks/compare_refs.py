@@ -489,9 +489,13 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     root = repo_root()
-    database = resolve_database(args.file)
-    if not database.is_absolute():
-        database = root / database
+    database_arg = args.file
+    if database_arg is not None:
+        database_path = Path(database_arg).expanduser()
+        if not database_path.is_absolute():
+            database_path = root / database_path
+        database_arg = str(database_path)
+    database = resolve_database(database_arg)
     if args.batch_size <= 0:
         raise ValueError("--batch-size must be positive")
     if args.count <= 0:
