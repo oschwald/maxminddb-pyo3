@@ -8,7 +8,7 @@ use serde::de::{self, Deserialize, DeserializeSeed, Deserializer, MapAccess, Seq
 use std::{cell::RefCell, fmt};
 
 thread_local! {
-    static PY_MAP_KEY_CACHE: RefCell<FxHashMap<String, Py<PyString>>> =
+    static PY_MAP_KEY_CACHE: RefCell<FxHashMap<Vec<u8>, Py<PyString>>> =
         RefCell::new(FxHashMap::default());
 }
 
@@ -60,7 +60,7 @@ impl<'de, 'py> DeserializeSeed<'de> for PyValueSeed<'py> {
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_any(PyValueVisitor { py: self.py })
+        maxminddb::deserialize_any_with_raw_strings(deserializer, PyValueVisitor { py: self.py })
     }
 }
 
@@ -156,6 +156,13 @@ impl<'de, 'py> Visitor<'de> for PyValueVisitor<'py> {
         bound_to_value(value.into_py_any(self.py))
     }
 
+    fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_bytes(PyStringBytesVisitor { py: self.py })
+    }
+
     fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E>
     where
         E: de::Error,
@@ -190,11 +197,60 @@ impl<'de, 'py> Visitor<'de> for PyValueVisitor<'py> {
         A: MapAccess<'de>,
     {
         let dict = PyDict::new(self.py);
-        while let Some(key) = map.next_key::<&'de str>()? {
+        while let Some(key) = map.next_key_seed(PyMapKeySeed)? {
             let value = map.next_value_seed(PyValueSeed::new(self.py))?;
             set_cached_map_item(self.py, &dict, key, value.into_py()).map_err(pyerr_to_de_error)?;
         }
         Ok(PyDecodedValue::new(dict.into_any().unbind()))
+    }
+}
+
+struct PyStringBytesVisitor<'py> {
+    py: Python<'py>,
+}
+
+impl<'de, 'py> Visitor<'de> for PyStringBytesVisitor<'py> {
+    type Value = PyDecodedValue;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("borrowed MaxMind DB string bytes")
+    }
+
+    fn visit_borrowed_bytes<E>(self, value: &'de [u8]) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        bound_to_value(PyString::from_bytes(self.py, value).map(|value| value.into_any().unbind()))
+    }
+}
+
+struct PyMapKeySeed;
+
+impl<'de> DeserializeSeed<'de> for PyMapKeySeed {
+    type Value = &'de [u8];
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_identifier(PyMapKeyVisitor)
+    }
+}
+
+struct PyMapKeyVisitor;
+
+impl<'de> Visitor<'de> for PyMapKeyVisitor {
+    type Value = &'de [u8];
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("borrowed MaxMind DB map-key bytes")
+    }
+
+    fn visit_borrowed_bytes<E>(self, value: &'de [u8]) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        Ok(value)
     }
 }
 
@@ -209,7 +265,7 @@ fn bound_to_value<E: de::Error>(result: PyResult<Py<PyAny>>) -> Result<PyDecoded
 fn set_cached_map_item(
     py: Python,
     dict: &Bound<'_, PyDict>,
-    key: &str,
+    key: &[u8],
     value: Py<PyAny>,
 ) -> PyResult<()> {
     PY_MAP_KEY_CACHE.with(|cache| {
@@ -218,11 +274,11 @@ fn set_cached_map_item(
             return dict.set_item(existing.bind(py), value);
         }
         if cache.len() >= PY_MAP_KEY_CACHE_MAX {
-            return dict.set_item(PyString::new(py, key), value);
+            return dict.set_item(PyString::from_bytes(py, key)?, value);
         }
-        let py_key = PyString::new(py, key).unbind();
+        let py_key = PyString::from_bytes(py, key)?.unbind();
         let result = dict.set_item(py_key.bind(py), value);
-        cache.insert(key.to_owned(), py_key);
+        cache.insert(key.to_vec(), py_key);
         result
     })
 }

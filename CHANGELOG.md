@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Record strings are validated while constructing Python strings, avoiding a
+  duplicate UTF-8 validation pass through an intermediate Rust string.
 - Ref-comparison benchmarks can now generate successful lookups from database
   contents, and CI uses this workload to exercise record decoding.
 - Lookups of `ipaddress.IPv4Address` and `ipaddress.IPv6Address` objects avoid
