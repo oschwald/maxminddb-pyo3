@@ -15,9 +15,10 @@ Performance depends on the database, lookup pattern, and hardware. Run the
 benchmark scripts in `benchmarks/` against your own databases to measure
 expected throughput in your environment.
 
-The reader is thread-safe and can be shared across threads. Lookup methods
-create Python objects and hold the GIL while doing so, so CPU-bound lookups from
-Python threads are still constrained by normal Python GIL behavior.
+The reader is thread-safe and can be shared across threads. On standard CPython
+builds, CPU-bound lookups from Python threads remain constrained by the GIL.
+Free-threaded CPython 3.14 wheels allow lookup threads to run concurrently;
+scaling depends on the database and workload.
 
 ## Features
 
@@ -227,30 +228,37 @@ uv run python examples/batch_processing.py
 ## Benchmarking
 
 Benchmark scripts are consolidated in the `benchmarks/` directory.
+They default to commonly installed databases under `/var/lib/GeoIP`, preferring
+GeoLite2 City when available. Pass `--file /path/to/database.mmdb` to benchmark
+a different database. The comprehensive benchmark accepts `--file` more than
+once.
 
 Run the included benchmarks after building from source:
 
 ```bash
 # Single lookup benchmark
-uv run python benchmarks/benchmark.py --file /var/lib/GeoIP/GeoIP2-City.mmdb --count 250000
+uv run python benchmarks/benchmark.py --count 250000
 
 # Comprehensive benchmark across multiple databases
 uv run python benchmarks/benchmark_comprehensive.py --count 250000
 
 # Batch lookup benchmark
-uv run python benchmarks/benchmark_batch.py --file /var/lib/GeoIP/GeoIP2-City.mmdb --batch-size 100
+uv run python benchmarks/benchmark_batch.py --batch-size 100
 
 # Threaded lookup benchmark (shared Reader across Python threads, default DB set)
 uv run python benchmarks/benchmark_parallel.py --count 500000 --workers 1,2,4,8
 
 # get() vs get_path() benchmark
-uv run python benchmarks/benchmark_path.py --file /var/lib/GeoIP/GeoLite2-City.mmdb --count 250000
+uv run python benchmarks/benchmark_path.py --count 250000
 
 # Compare benchmark throughput between two git refs
 uv run python benchmarks/compare_refs.py --baseline-ref origin/main --candidate-ref HEAD
 
 # CI-friendly comparison with JSON output and a 5% regression threshold
 uv run python benchmarks/compare_refs.py --json-output bench.json --max-regression-pct 5
+
+# Force successful lookups, including when using a sparse test database
+uv run python benchmarks/compare_refs.py --workload database-hits
 
 # Path cache profiling: cached tuple, new tuple per call, list path per call
 uv run python benchmarks/compare_refs.py --case get_path --case get_path_new_tuple --case get_path_list

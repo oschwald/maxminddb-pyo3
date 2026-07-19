@@ -49,7 +49,6 @@ test = [
 ]
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
 include = ["maxminddb_rust.pyi", "py.typed"]
 
 [tool.pytest.ini_options]

@@ -8,11 +8,15 @@ import timeit
 
 import maxminddb_rust
 
+from _common import resolve_database
+
 parser = argparse.ArgumentParser(description="Benchmark maxminddb get vs get_path.")
 parser.add_argument("--count", default=250000, type=int, help="number of lookups")
 parser.add_argument("--batch-size", default=100, type=int, help="batch size")
 parser.add_argument(
-    "--file", default="/var/lib/GeoIP/GeoLite2-City.mmdb", help="path to mmdb file"
+    "--file",
+    default=None,
+    help="path to mmdb file (defaults to an installed database under /var/lib/GeoIP)",
 )
 
 args = parser.parse_args()
@@ -20,7 +24,8 @@ if args.batch_size <= 0:
     raise ValueError("--batch-size must be positive")
 
 random.seed(0)
-reader = maxminddb_rust.open_database(args.file)
+database = resolve_database(args.file)
+reader = maxminddb_rust.open_database(database)
 
 # Pre-generate IPs to ensure fair comparison (though random lookup overhead is small)
 ips = [

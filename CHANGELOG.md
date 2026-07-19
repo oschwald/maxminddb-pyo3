@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Updated the `maxminddb` crate to 0.30.0.
+- Benchmarks now default to commonly installed databases under
+  `/var/lib/GeoIP`, while retaining `--file` overrides for custom paths.
+- CI now tests every declared CPython version from 3.8 through 3.14, plus the
+  free-threaded 3.14 build, and releases include a free-threaded 3.14 wheel.
+- The threaded benchmark now gives each worker a private input chunk, avoiding
+  shared-list contention on free-threaded Python.
+
+### Performance
+
+- Record strings are validated while constructing Python strings, avoiding a
+  duplicate UTF-8 validation pass through an intermediate Rust string.
+- Ref-comparison benchmarks can now generate successful lookups from database
+  contents, and CI uses this workload to exercise record decoding.
+- Lookups of `ipaddress.IPv4Address` and `ipaddress.IPv6Address` objects avoid
+  allocating temporary packed byte strings.
+- Equivalent immutable tuple paths now reuse parsed path-cache entries even
+  when callers construct a new tuple for each lookup.
+- Memory-mode database opening uses the standard preallocated whole-file read
+  path.
+
+### Fixed
+
+- Database paths preserve platform filesystem encoding, including
+  surrogate-escaped Unix filenames, and exceptions from `__fspath__` are no
+  longer replaced with a generic argument error.
+
 ## [0.6.0] - 2026-06-14
 
 ### Added

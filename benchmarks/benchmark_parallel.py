@@ -11,18 +11,20 @@ import time
 
 import maxminddb_rust
 
+from _common import default_databases, resolve_database
 
-def chunk_ranges(total: int, workers: int) -> list[tuple[int, int]]:
-    base = total // workers
-    remainder = total % workers
-    ranges = []
+
+def chunks(values: list[str], workers: int) -> list[list[str]]:
+    base = len(values) // workers
+    remainder = len(values) % workers
+    result = []
     start = 0
     for i in range(workers):
         size = base + (1 if i < remainder else 0)
         end = start + size
-        ranges.append((start, end))
+        result.append(values[start:end])
         start = end
-    return ranges
+    return result
 
 
 def main() -> None:
@@ -44,15 +46,20 @@ def main() -> None:
     if not worker_counts or any(w <= 0 for w in worker_counts):
         raise ValueError("--workers must contain one or more positive integers")
 
-    databases = (
-        [(args.file, args.file)]
-        if args.file
-        else [
-            ("/var/lib/GeoIP/GeoLite2-Country.mmdb", "GeoLite2-Country (9.6MB)"),
-            ("/var/lib/GeoIP/GeoLite2-City.mmdb", "GeoLite2-City (61MB)"),
-            ("/var/lib/GeoIP/GeoIP2-City.mmdb", "GeoIP2-City (117MB)"),
-        ]
-    )
+    if args.file:
+        paths = [resolve_database(args.file)]
+    else:
+        paths = default_databases()
+        if not paths:
+            resolve_database(None)  # Raise the shared, actionable error.
+
+    databases = [
+        (
+            str(path),
+            f"{path.name} ({path.stat().st_size / 1024 / 1024:.1f} MiB)",
+        )
+        for path in paths
+    ]
 
     random.seed(0)
     ips = [
@@ -68,21 +75,21 @@ def main() -> None:
         print(f"Database: {database_label}")
         with maxminddb_rust.open_database(database_path) as reader:
 
-            def lookup_range(start: int, end: int) -> int:
-                for index in range(start, end):
-                    reader.get(ips[index])
-                return end - start
+            def lookup_chunk(values: list[str]) -> int:
+                for ip in values:
+                    reader.get(ip)
+                return len(values)
 
             baseline = None
             for workers in worker_counts:
-                ranges = chunk_ranges(args.count, workers)
+                worker_chunks = chunks(ips, workers)
                 started = time.perf_counter()
                 with concurrent.futures.ThreadPoolExecutor(
                     max_workers=workers
                 ) as executor:
                     futures = [
-                        executor.submit(lookup_range, start, end)
-                        for (start, end) in ranges
+                        executor.submit(lookup_chunk, values)
+                        for values in worker_chunks
                     ]
                     completed = sum(f.result() for f in futures)
                 elapsed = time.perf_counter() - started

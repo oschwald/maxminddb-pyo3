@@ -64,6 +64,8 @@ jobs:
           uv run python benchmarks/compare_refs.py \
             --baseline-ref "$BASELINE_REF" \
             --candidate-ref "$CANDIDATE_REF" \
+            --file tests/data/test-data/GeoIP2-City-Test.mmdb \
+            --workload database-hits \
             --count "$COUNT" \
             --repeats "$REPEATS" \
             --warmups "$WARMUPS" \

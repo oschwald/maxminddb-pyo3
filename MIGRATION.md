@@ -178,6 +178,9 @@ uv run python benchmarks/benchmark_batch.py --file /path/to/GeoIP2-City.mmdb --b
 uv run python benchmarks/compare_refs.py --baseline-ref origin/main --candidate-ref HEAD
 ```
 
+The benchmarks default to databases installed under `/var/lib/GeoIP`; use
+`--file` to select another database.
+
 `get_many()` is an extension that the official package does not provide, so compare it against your current loop of `get()` calls when evaluating a migration.
 
 ## Troubleshooting

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -59,3 +62,31 @@ def test_mode_file_opens_pathlike_database() -> None:
         assert reader.get("81.2.69.142") is not None
     finally:
         reader.close()
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or sys.platform == "darwin",
+    reason="requires a filesystem accepting non-UTF-8 filenames",
+)
+@pytest.mark.parametrize("mode", [maxminddb_rust.MODE_MMAP, maxminddb_rust.MODE_FILE])
+def test_path_with_surrogate_escape(mode: int, tmp_path: Path) -> None:
+    db_path = os.path.join(
+        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
+    )
+    raw_path = os.fsencode(tmp_path) + b"/city-\xff.mmdb"
+    shutil.copyfile(db_path, raw_path)
+
+    reader = maxminddb_rust.open_database(os.fsdecode(raw_path), mode)
+    try:
+        assert reader.get("81.2.69.142") is not None
+    finally:
+        reader.close()
+
+
+def test_pathlike_exception_is_preserved() -> None:
+    class BrokenPath:
+        def __fspath__(self) -> str:
+            raise RuntimeError("broken path")
+
+    with pytest.raises(RuntimeError, match="broken path"):
+        maxminddb_rust.open_database(BrokenPath())

@@ -1,41 +1,35 @@
 use ::maxminddb as maxminddb_crate;
 use arc_swap::ArcSwapOption;
-use maxminddb_crate::{
-    MaxMindDbError, PathElement, Reader as MaxMindReader, Within, WithinOptions,
-};
+use maxminddb_crate::{MaxMindDbError, PathElement, Reader as MaxMindReader};
 use memmap2::Mmap;
 use pyo3::{
-    conversion::IntoPyObjectExt,
-    exceptions::{
-        PyFileNotFoundError, PyIOError, PyOSError, PyRuntimeError, PyTypeError, PyValueError,
-    },
+    exceptions::{PyAttributeError, PyOSError, PyRuntimeError, PyTypeError, PyValueError},
     prelude::*,
     types::{
-        PyBool, PyByteArray, PyBytes, PyDict, PyInt, PyList, PyListMethods, PyModule, PyString,
-        PyTuple, PyTupleMethods,
+        PyByteArray, PyBytes, PyList, PyListMethods, PyModule, PyString, PyTuple, PyTupleMethods,
     },
 };
-use rustc_hash::FxHashMap;
-use self_cell::self_cell;
-use serde::de::{self, Deserialize, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use std::{
-    cell::RefCell,
-    collections::{BTreeMap, VecDeque},
-    fmt,
-    fs::File,
-    io::Read as IoRead,
-    net::{IpAddr, Ipv4Addr},
-    path::Path,
-    str::FromStr,
+    collections::VecDeque,
+    ffi::OsString,
+    net::IpAddr,
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
-thread_local! {
-    static PY_MAP_KEY_CACHE: RefCell<FxHashMap<String, Py<PyString>>> =
-        RefCell::new(FxHashMap::default());
-}
+mod decode;
+mod ip;
+mod iterator;
+mod metadata;
+mod open;
+mod path;
 
-const PY_MAP_KEY_CACHE_MAX: usize = 256;
+use decode::PyDecodedValue;
+use ip::{ipv6_in_ipv4_error, parse_ip_address};
+use iterator::ReaderIterator;
+use metadata::Metadata;
+use open::{open_database_fd, open_database_memory, open_database_mmap};
+use path::{parse_path, path_elements_from_owned_path, path_tuple_matches_owned, OwnedPathElement};
 
 // Define InvalidDatabaseError exception (subclass of RuntimeError)
 pyo3::create_exception!(
@@ -44,219 +38,6 @@ pyo3::create_exception!(
     PyRuntimeError,
     "Invalid MaxMind DB"
 );
-
-/// Wrapper that owns the Python object produced by deserializing a MaxMind record
-#[derive(Debug)]
-struct PyDecodedValue {
-    value: Py<PyAny>,
-}
-
-impl PyDecodedValue {
-    #[inline]
-    fn new(value: Py<PyAny>) -> Self {
-        Self { value }
-    }
-
-    #[inline]
-    fn into_py(self) -> Py<PyAny> {
-        self.value
-    }
-}
-
-impl<'de> Deserialize<'de> for PyDecodedValue {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Python::attach(|py| PyValueSeed { py }.deserialize(deserializer))
-    }
-}
-
-#[derive(Copy, Clone)]
-struct PyValueSeed<'py> {
-    py: Python<'py>,
-}
-
-impl<'py> PyValueSeed<'py> {
-    #[inline]
-    fn new(py: Python<'py>) -> Self {
-        Self { py }
-    }
-}
-
-impl<'de, 'py> DeserializeSeed<'de> for PyValueSeed<'py> {
-    type Value = PyDecodedValue;
-
-    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_any(PyValueVisitor { py: self.py })
-    }
-}
-
-struct PyValueVisitor<'py> {
-    py: Python<'py>,
-}
-
-impl<'de, 'py> Visitor<'de> for PyValueVisitor<'py> {
-    type Value = PyDecodedValue;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("any valid MaxMind DB value")
-    }
-
-    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        bound_to_value(value.into_py_any(self.py))
-    }
-
-    fn visit_i32<E>(self, value: i32) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        bound_to_value(value.into_py_any(self.py))
-    }
-
-    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
-            bound_to_value((value as i32).into_py_any(self.py))
-        } else {
-            Err(E::custom(format!("integer {} out of i32 range", value)))
-        }
-    }
-
-    fn visit_u16<E>(self, value: u16) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        bound_to_value(value.into_py_any(self.py))
-    }
-
-    fn visit_u32<E>(self, value: u32) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        bound_to_value(value.into_py_any(self.py))
-    }
-
-    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        bound_to_value(value.into_py_any(self.py))
-    }
-
-    fn visit_u128<E>(self, value: u128) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        bound_to_value(value.into_py_any(self.py))
-    }
-
-    fn visit_f32<E>(self, value: f32) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        bound_to_value(value.into_py_any(self.py))
-    }
-
-    fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        bound_to_value(value.into_py_any(self.py))
-    }
-
-    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        bound_to_value(value.into_py_any(self.py))
-    }
-
-    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        bound_to_value(value.into_py_any(self.py))
-    }
-
-    fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        let py_bytes = PyBytes::new(self.py, value);
-        Ok(PyDecodedValue::new(py_bytes.into_any().unbind()))
-    }
-
-    fn visit_byte_buf<E>(self, value: Vec<u8>) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        let py_bytes = PyBytes::new(self.py, &value);
-        Ok(PyDecodedValue::new(py_bytes.into_any().unbind()))
-    }
-
-    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-    where
-        A: SeqAccess<'de>,
-    {
-        let capacity = seq.size_hint().unwrap_or(0);
-        let mut elements = Vec::with_capacity(capacity);
-        while let Some(elem) = seq.next_element_seed(PyValueSeed::new(self.py))? {
-            elements.push(elem.into_py());
-        }
-        let py_list = PyList::new(self.py, elements).map_err(pyerr_to_de_error)?;
-        Ok(PyDecodedValue::new(py_list.into_any().unbind()))
-    }
-
-    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-    where
-        A: MapAccess<'de>,
-    {
-        let dict = PyDict::new(self.py);
-        while let Some(key) = map.next_key::<&'de str>()? {
-            let value = map.next_value_seed(PyValueSeed::new(self.py))?;
-            set_cached_map_item(self.py, &dict, key, value.into_py()).map_err(pyerr_to_de_error)?;
-        }
-        Ok(PyDecodedValue::new(dict.into_any().unbind()))
-    }
-}
-
-fn pyerr_to_de_error<E: de::Error>(err: PyErr) -> E {
-    E::custom(err.to_string())
-}
-
-fn bound_to_value<E: de::Error>(result: PyResult<Py<PyAny>>) -> Result<PyDecodedValue, E> {
-    result.map(PyDecodedValue::new).map_err(pyerr_to_de_error)
-}
-
-fn set_cached_map_item(
-    py: Python,
-    dict: &Bound<'_, PyDict>,
-    key: &str,
-    value: Py<PyAny>,
-) -> PyResult<()> {
-    PY_MAP_KEY_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        if let Some(existing) = cache.get(key) {
-            return dict.set_item(existing.bind(py), value);
-        }
-        if cache.len() >= PY_MAP_KEY_CACHE_MAX {
-            return dict.set_item(PyString::new(py, key), value);
-        }
-        let py_key = PyString::new(py, key).unbind();
-        let result = dict.set_item(py_key.bind(py), value);
-        cache.insert(key.to_owned(), py_key);
-        result
-    })
-}
 
 // Mode constants matching original maxminddb module
 const MODE_AUTO: i32 = 0;
@@ -299,16 +80,10 @@ impl TryFrom<i32> for OpenMode {
     }
 }
 
-enum OwnedPathElement {
-    Key(String),
-    Index(usize),
-    IndexFromEnd(usize),
-}
-
 type CachedPath = (Py<PyTuple>, Arc<Vec<OwnedPathElement>>);
 
 /// Enum to handle different reader source types
-enum ReaderSource {
+pub(crate) enum ReaderSource {
     Mmap(MaxMindReader<Mmap>),
     Memory(MaxMindReader<Vec<u8>>),
 }
@@ -397,85 +172,6 @@ fn convert_prefix_len(queried_ip: IpAddr, network: ipnetwork::IpNetwork) -> usiz
         (IpAddr::V4(_), ipnetwork::IpNetwork::V6(_)) => prefix.saturating_sub(96),
         // Same address family: use prefix as-is
         _ => prefix,
-    }
-}
-
-/// Metadata about the MaxMind DB database
-#[pyclass(module = "maxminddb_rust")]
-struct Metadata {
-    /// The major version number of the binary format used when creating the database.
-    #[pyo3(get)]
-    binary_format_major_version: u16,
-    /// The minor version number of the binary format used when creating the database.
-    #[pyo3(get)]
-    binary_format_minor_version: u16,
-    /// The Unix epoch timestamp for when the database was built.
-    #[pyo3(get)]
-    build_epoch: u64,
-    /// A string identifying the database type (e.g., 'GeoIP2-City', 'GeoLite2-Country').
-    #[pyo3(get)]
-    database_type: String,
-    description_dict: BTreeMap<String, String>,
-    /// The IP version of the data in a database. A value of 4 means IPv4 only; 6 supports both IPv4 and IPv6.
-    #[pyo3(get)]
-    ip_version: u16,
-    languages_list: Vec<String>,
-    /// The number of nodes in the search tree.
-    #[pyo3(get)]
-    node_count: u32,
-    /// The record size in bits (24, 28, or 32).
-    #[pyo3(get)]
-    record_size: u16,
-}
-
-#[pymethods]
-impl Metadata {
-    /// A dictionary from locale codes to the database description in that locale.
-    #[getter]
-    fn description(&self, py: Python) -> PyResult<Py<PyAny>> {
-        // Convert BTreeMap<String, String> to Python dict
-        let dict = PyDict::new(py);
-        for (k, v) in &self.description_dict {
-            dict.set_item(k, v)?;
-        }
-        Ok(dict.into())
-    }
-
-    /// A list of locale codes supported by the database for descriptions and other text.
-    #[getter]
-    fn languages(&self, py: Python) -> PyResult<Py<PyAny>> {
-        // Convert Vec<String> to Python list
-        let list = PyList::new(py, &self.languages_list)?;
-        Ok(list.into_any().unbind())
-    }
-
-    /// The size of a node in bytes.
-    #[getter]
-    fn node_byte_size(&self) -> u16 {
-        self.record_size / 4
-    }
-
-    /// The size of the search tree in bytes.
-    #[getter]
-    fn search_tree_size(&self) -> u32 {
-        self.node_count * (self.record_size as u32 / 4)
-    }
-}
-
-impl Metadata {
-    #[inline]
-    fn from_maxmind(meta: &maxminddb_crate::Metadata) -> Self {
-        Self {
-            binary_format_major_version: meta.binary_format_major_version,
-            binary_format_minor_version: meta.binary_format_minor_version,
-            build_epoch: meta.build_epoch,
-            database_type: meta.database_type.clone(),
-            description_dict: meta.description.clone(),
-            ip_version: meta.ip_version,
-            languages_list: meta.languages.clone(),
-            node_count: meta.node_count,
-            record_size: meta.record_size,
-        }
     }
 }
 
@@ -571,7 +267,7 @@ impl Reader {
         let parsed_ip = self.parse_lookup_ip(ip_address)?;
 
         // Parse path (cache tuple paths, which are immutable and commonly reused)
-        let owned_path = self.get_or_parse_path(py, path)?;
+        let owned_path = self.get_or_parse_path(path)?;
         let path_elements = path_elements_from_owned_path(&owned_path);
 
         let reader = self.reader.load();
@@ -719,7 +415,7 @@ impl Reader {
             ));
         }
 
-        let owned_path = self.get_or_parse_path(py, path)?;
+        let owned_path = self.get_or_parse_path(path)?;
         let path_elements = path_elements_from_owned_path(&owned_path);
 
         if let Ok(list) = ips.cast::<PyList>() {
@@ -914,15 +610,23 @@ impl Reader {
         }
     }
 
-    fn extract_database_path(database: &Bound<'_, PyAny>) -> PyResult<String> {
-        if let Ok(s) = database.extract::<String>() {
-            return Ok(s);
-        }
+    fn extract_database_path(database: &Bound<'_, PyAny>) -> PyResult<PathBuf> {
+        let path = if database.is_instance_of::<PyString>() {
+            database.clone()
+        } else {
+            match database.call_method0("__fspath__") {
+                Ok(path) => path,
+                Err(err) if err.is_instance_of::<PyAttributeError>(database.py()) => {
+                    return Err(PyValueError::new_err(ERR_BAD_DATABASE_ARG));
+                }
+                Err(err) => return Err(err),
+            }
+        };
 
-        match database.call_method0("__fspath__") {
-            Ok(fspath) => fspath.extract::<String>(),
-            Err(_) => Err(PyValueError::new_err(ERR_BAD_DATABASE_ARG)),
+        if let Ok(path) = path.extract::<String>() {
+            return Ok(path.into());
         }
+        path.extract::<OsString>().map(PathBuf::from)
     }
 
     fn resolve_open_mode(mode: i32) -> PyResult<OpenMode> {
@@ -943,25 +647,19 @@ impl Reader {
         }
     }
 
-    fn get_or_parse_path(
-        &self,
-        py: Python,
-        path: &Bound<'_, PyAny>,
-    ) -> PyResult<Arc<Vec<OwnedPathElement>>> {
+    fn get_or_parse_path(&self, path: &Bound<'_, PyAny>) -> PyResult<Arc<Vec<OwnedPathElement>>> {
         const PATH_CACHE_MAX_ENTRIES: usize = 64;
 
         let Ok(path_tuple) = path.cast::<PyTuple>() else {
             return Ok(Arc::new(parse_path(path)?));
         };
-        let path_ptr = path_tuple.as_ptr();
-
-        if let Some(cached_path) = self.lookup_cached_path(py, path_ptr) {
+        if let Some(cached_path) = self.lookup_cached_path(path_tuple) {
             return Ok(cached_path);
         }
 
         let parsed = Arc::new(parse_path(path)?);
         if let Ok(mut cache) = self.path_cache.lock() {
-            if let Some(cached_path) = Self::lookup_cached_path_in_cache(py, path_ptr, &cache) {
+            if let Some(cached_path) = Self::lookup_cached_path_in_cache(path_tuple, &cache) {
                 return Ok(cached_path);
             }
             if cache.len() >= PATH_CACHE_MAX_ENTRIES {
@@ -981,26 +679,27 @@ impl Reader {
     }
 
     #[inline]
-    fn lookup_cached_path(
-        &self,
-        py: Python,
-        path_ptr: *mut pyo3::ffi::PyObject,
-    ) -> Option<Arc<Vec<OwnedPathElement>>> {
+    fn lookup_cached_path(&self, path: &Bound<'_, PyTuple>) -> Option<Arc<Vec<OwnedPathElement>>> {
         self.path_cache
             .lock()
             .ok()
-            .and_then(|cache| Self::lookup_cached_path_in_cache(py, path_ptr, &cache))
+            .and_then(|cache| Self::lookup_cached_path_in_cache(path, &cache))
     }
 
     #[inline]
     fn lookup_cached_path_in_cache(
-        py: Python,
-        path_ptr: *mut pyo3::ffi::PyObject,
+        path: &Bound<'_, PyTuple>,
         cache: &VecDeque<CachedPath>,
     ) -> Option<Arc<Vec<OwnedPathElement>>> {
-        cache.iter().find_map(|(cached_tuple, cached_path)| {
-            (cached_tuple.bind(py).as_ptr() == path_ptr).then(|| Arc::clone(cached_path))
-        })
+        cache
+            .iter()
+            .find(|(cached_tuple, _)| cached_tuple.bind(path.py()).as_ptr() == path.as_ptr())
+            .or_else(|| {
+                cache
+                    .iter()
+                    .find(|(_, cached_path)| path_tuple_matches_owned(path, cached_path.as_slice()))
+            })
+            .map(|(_, cached_path)| Arc::clone(cached_path))
     }
 
     fn get_many_from_items<'py>(
@@ -1042,425 +741,6 @@ fn is_bytes_like_or_string(obj: &Bound<'_, PyAny>) -> bool {
     obj.is_instance_of::<PyString>()
         || obj.is_instance_of::<PyBytes>()
         || obj.is_instance_of::<PyByteArray>()
-}
-
-/// Iterator for Reader that yields `(network, record)` tuples.
-#[pyclass(module = "maxminddb_rust")]
-struct ReaderIterator {
-    iter: ReaderWithin,
-    ipv4_network_cls: Py<PyAny>,
-    ipv6_network_cls: Py<PyAny>,
-}
-
-impl ReaderIterator {
-    #[inline]
-    fn root_network_for_ip_version(
-        ip_version: u16,
-    ) -> PyResult<(ipnetwork::IpNetwork, &'static str)> {
-        let (network_str, network_type) = if ip_version == 4 {
-            ("0.0.0.0/0", "IPv4")
-        } else {
-            ("::/0", "IPv6")
-        };
-
-        let network = ipnetwork::IpNetwork::from_str(network_str).map_err(|e| {
-            InvalidDatabaseError::new_err(format!(
-                "Failed to create {} network: {}",
-                network_type, e
-            ))
-        })?;
-        Ok((network, network_type))
-    }
-
-    #[inline]
-    fn network_to_python(&self, py: Python, ip_net: ipnetwork::IpNetwork) -> PyResult<Py<PyAny>> {
-        let (class, addr_int, prefix_len) = match ip_net {
-            ipnetwork::IpNetwork::V4(v4) => (
-                self.ipv4_network_cls.bind(py),
-                u32::from(v4.ip()) as u128,
-                v4.prefix(),
-            ),
-            ipnetwork::IpNetwork::V6(v6) => (
-                self.ipv6_network_cls.bind(py),
-                u128::from(v6.ip()),
-                v6.prefix(),
-            ),
-        };
-        Ok(class.call1(((addr_int, prefix_len),))?.unbind())
-    }
-
-    fn new(py: Python, reader: Arc<ReaderSource>) -> PyResult<Self> {
-        let ip_version = reader.metadata().ip_version;
-        let (network, network_type) = Self::root_network_for_ip_version(ip_version)?;
-
-        let iter = ReaderWithin::new(reader, network).map_err(|e| {
-            InvalidDatabaseError::new_err(format!("Failed to iterate {}: {}", network_type, e))
-        })?;
-
-        let ipaddress = py.import("ipaddress")?;
-        let ipv4_network_cls = ipaddress.getattr("IPv4Network")?.unbind();
-        let ipv6_network_cls = ipaddress.getattr("IPv6Network")?.unbind();
-
-        Ok(Self {
-            iter,
-            ipv4_network_cls,
-            ipv6_network_cls,
-        })
-    }
-}
-
-#[pymethods]
-impl ReaderIterator {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    fn __next__(&mut self, py: Python) -> PyResult<Option<(Py<PyAny>, Py<PyAny>)>> {
-        let next_item = match self.iter.next() {
-            Some(result) => result
-                .map_err(|e| InvalidDatabaseError::new_err(format!("Iteration error: {}", e)))?,
-            None => return Ok(None),
-        };
-        let network_obj = self.network_to_python(py, next_item.ip_net)?;
-
-        // Record is already materialized as a Python object
-        let data_obj = next_item.data.into_py();
-
-        Ok(Some((network_obj, data_obj)))
-    }
-}
-
-type MmapWithin<'a> = Within<'a, Mmap>;
-type MemoryWithin<'a> = Within<'a, Vec<u8>>;
-
-self_cell!(
-    struct MmapWithinCell {
-        owner: Arc<ReaderSource>,
-
-        #[covariant]
-        dependent: MmapWithin,
-    }
-);
-
-self_cell!(
-    struct MemoryWithinCell {
-        owner: Arc<ReaderSource>,
-
-        #[covariant]
-        dependent: MemoryWithin,
-    }
-);
-
-enum ReaderWithin {
-    Mmap(MmapWithinCell),
-    Memory(MemoryWithinCell),
-}
-
-/// Result from the within iterator, containing network and decoded data
-struct WithinResult {
-    ip_net: ipnetwork::IpNetwork,
-    data: PyDecodedValue,
-}
-
-#[inline]
-fn process_within_lookup<S: AsRef<[u8]>>(
-    lookup_result: maxminddb_crate::LookupResult<'_, S>,
-) -> Result<WithinResult, MaxMindDbError> {
-    let network = lookup_result.network()?;
-    let ip_net = ipnetwork::IpNetwork::new(network.network(), network.prefix()).map_err(|e| {
-        MaxMindDbError::InvalidDatabase {
-            message: format!("Invalid network from database: {}", e),
-            offset: None,
-        }
-    })?;
-    let data: Option<PyDecodedValue> = lookup_result.decode()?;
-    let data = data.ok_or_else(|| MaxMindDbError::InvalidDatabase {
-        message: "No data in database record".to_string(),
-        offset: None,
-    })?;
-    Ok(WithinResult { ip_net, data })
-}
-
-#[inline]
-fn next_within<S: AsRef<[u8]>>(
-    iter: &mut Within<'_, S>,
-) -> Option<Result<WithinResult, MaxMindDbError>> {
-    let result = iter.next()?;
-    Some(result.and_then(process_within_lookup))
-}
-
-impl ReaderWithin {
-    fn new(
-        reader: Arc<ReaderSource>,
-        network: ipnetwork::IpNetwork,
-    ) -> Result<Self, maxminddb_crate::MaxMindDbError> {
-        let options = WithinOptions::default();
-        match reader.as_ref() {
-            ReaderSource::Mmap(_) => Ok(Self::Mmap(MmapWithinCell::try_new(
-                reader,
-                move |reader| match reader.as_ref() {
-                    ReaderSource::Mmap(inner) => inner.within(network, options),
-                    ReaderSource::Memory(_) => {
-                        unreachable!("reader source changed while building iterator")
-                    }
-                },
-            )?)),
-            ReaderSource::Memory(_) => Ok(Self::Memory(MemoryWithinCell::try_new(
-                reader,
-                move |reader| match reader.as_ref() {
-                    ReaderSource::Mmap(_) => {
-                        unreachable!("reader source changed while building iterator")
-                    }
-                    ReaderSource::Memory(inner) => inner.within(network, options),
-                },
-            )?)),
-        }
-    }
-
-    fn next(&mut self) -> Option<Result<WithinResult, maxminddb_crate::MaxMindDbError>> {
-        match self {
-            ReaderWithin::Mmap(cell) => cell.with_dependent_mut(|_, iter| next_within(iter)),
-            ReaderWithin::Memory(cell) => cell.with_dependent_mut(|_, iter| next_within(iter)),
-        }
-    }
-}
-
-fn parse_path(path: &Bound<'_, PyAny>) -> PyResult<Vec<OwnedPathElement>> {
-    const ERR_PATH_SEQUENCE: &str = "Path must be a sequence (list or tuple)";
-    const ERR_PATH_ELEMENT: &str = "Path elements must be strings or integers";
-
-    if path.is_instance_of::<PyString>() {
-        return Err(PyTypeError::new_err(ERR_PATH_SEQUENCE));
-    }
-
-    let iterator = path
-        .try_iter()
-        .map_err(|_| PyTypeError::new_err(ERR_PATH_SEQUENCE))?;
-    let mut owned_path = Vec::new();
-    for item in iterator {
-        let item = item?;
-        if item.is_instance_of::<PyBool>() {
-            return Err(PyTypeError::new_err(ERR_PATH_ELEMENT));
-        }
-        if let Ok(s) = item.extract::<String>() {
-            owned_path.push(OwnedPathElement::Key(s));
-            continue;
-        }
-        if item.cast::<PyInt>().is_ok() {
-            if let Ok(i) = item.extract::<isize>() {
-                owned_path.push(signed_index_to_owned_path_element(i));
-                continue;
-            }
-            if let Ok(i) = item.extract::<usize>() {
-                owned_path.push(OwnedPathElement::Index(i));
-                continue;
-            }
-        }
-        return Err(PyTypeError::new_err(ERR_PATH_ELEMENT));
-    }
-
-    Ok(owned_path)
-}
-
-#[inline]
-fn signed_index_to_owned_path_element(n: isize) -> OwnedPathElement {
-    if n >= 0 {
-        OwnedPathElement::Index(n as usize)
-    } else {
-        let index = n
-            .checked_neg()
-            .and_then(|n| n.checked_sub(1))
-            .map(|n| n as usize)
-            .unwrap_or(usize::MAX);
-        OwnedPathElement::IndexFromEnd(index)
-    }
-}
-
-fn path_elements_from_owned_path(path: &[OwnedPathElement]) -> Vec<PathElement<'_>> {
-    path.iter()
-        .map(|element| match element {
-            OwnedPathElement::Key(key) => PathElement::Key(key.as_str()),
-            OwnedPathElement::Index(index) => PathElement::Index(*index),
-            OwnedPathElement::IndexFromEnd(index) => PathElement::IndexFromEnd(*index),
-        })
-        .collect()
-}
-
-/// Helper function to parse IP address from string or ipaddress objects
-#[inline(always)]
-fn parse_ip_address(ip_address: &Bound<'_, PyAny>) -> PyResult<IpAddr> {
-    // Fast path: Try string first (most common case)
-    if let Ok(py_str) = ip_address.cast::<PyString>() {
-        return parse_ip_string(py_str.to_str()?);
-    }
-
-    // Slow path: Check if it's an ipaddress.IPv4Address or IPv6Address
-    let type_name = ip_address.get_type().name()?;
-    if type_name == "IPv4Address" || type_name == "IPv6Address" {
-        let addr = ip_address.extract::<IpAddr>()?;
-        return Ok(addr);
-    }
-
-    Err(PyTypeError::new_err(
-        "argument 1 must be a string or ipaddress object",
-    ))
-}
-
-#[inline(always)]
-fn parse_ip_string(s: &str) -> PyResult<IpAddr> {
-    if let Some(ip) = parse_ipv4_string(s.as_bytes()) {
-        return Ok(IpAddr::V4(ip));
-    }
-
-    s.parse().map_err(|_| {
-        PyValueError::new_err(format!(
-            "'{}' does not appear to be an IPv4 or IPv6 address",
-            s
-        ))
-    })
-}
-
-#[inline(always)]
-fn parse_ipv4_string(bytes: &[u8]) -> Option<Ipv4Addr> {
-    let mut octets = [0u8; 4];
-    let mut octet_index = 0;
-    let mut value: u16 = 0;
-    let mut digits = 0;
-
-    for &byte in bytes {
-        if byte == b'.' {
-            if digits == 0 || octet_index == 3 {
-                return None;
-            }
-            octets[octet_index] = value as u8;
-            octet_index += 1;
-            value = 0;
-            digits = 0;
-            continue;
-        }
-
-        if !byte.is_ascii_digit() {
-            return None;
-        }
-        if digits == 1 && value == 0 {
-            return None;
-        }
-
-        digits += 1;
-        if digits > 3 {
-            return None;
-        }
-        value = value * 10 + u16::from(byte - b'0');
-        if value > u16::from(u8::MAX) {
-            return None;
-        }
-    }
-
-    if octet_index != 3 || digits == 0 {
-        return None;
-    }
-    octets[octet_index] = value as u8;
-
-    Some(Ipv4Addr::from(octets))
-}
-
-/// Helper function to generate IPv6-in-IPv4 error message
-#[inline]
-fn ipv6_in_ipv4_error(ip: &IpAddr) -> String {
-    format!(
-        "Error looking up {}. You attempted to look up an IPv6 address in an IPv4-only database",
-        ip
-    )
-}
-
-/// Helper function to open a file with appropriate error handling
-fn open_file(path: &str) -> PyResult<File> {
-    File::open(Path::new(path)).map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => PyFileNotFoundError::new_err(e.to_string()),
-        _ => PyIOError::new_err(e.to_string()),
-    })
-}
-
-/// Helper function to create a Reader from a ReaderSource
-fn create_reader(source: ReaderSource) -> Reader {
-    let ip_version = source.metadata().ip_version;
-    Reader {
-        reader: ArcSwapOption::from_pointee(source),
-        ip_version,
-        path_cache: Mutex::new(VecDeque::new()),
-    }
-}
-
-#[inline]
-fn reader_from_source<S: AsRef<[u8]>>(path: &str, source: S) -> PyResult<MaxMindReader<S>> {
-    MaxMindReader::from_source(source).map_err(|_| {
-        InvalidDatabaseError::new_err(format!(
-            "Error opening database file ({}). Is this a valid MaxMind DB file?",
-            path
-        ))
-    })
-}
-
-#[inline]
-fn load_reader<F, S>(path: &str, load_source: F) -> PyResult<MaxMindReader<S>>
-where
-    F: FnOnce(&str) -> PyResult<S> + Send,
-    S: AsRef<[u8]> + Send,
-{
-    Python::attach(|py| {
-        py.detach(|| load_source(path).and_then(|source| reader_from_source(path, source)))
-    })
-}
-
-/// Open a MaxMind DB using memory-mapped files (MODE_MMAP)
-fn open_database_mmap(path: &str) -> PyResult<Reader> {
-    let reader = load_reader(path, |path| {
-        let file = open_file(path)?;
-        // Safety: The mmap is read-only and the file won't be modified.
-        unsafe {
-            Mmap::map(&file)
-                .map_err(|e| PyIOError::new_err(format!("Failed to memory-map database: {e}")))
-        }
-    })?;
-
-    Ok(create_reader(ReaderSource::Mmap(reader)))
-}
-
-/// Open a MaxMind DB by loading entire file into memory (MODE_MEMORY)
-fn open_database_memory(path: &str) -> PyResult<Reader> {
-    let reader = load_reader(path, |path| {
-        let mut file = open_file(path)?;
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)
-            .map_err(|e| PyIOError::new_err(format!("Failed to read database file: {e}")))?;
-        Ok(buffer)
-    })?;
-
-    Ok(create_reader(ReaderSource::Memory(reader)))
-}
-
-/// Open a MaxMind DB from a file-like object's current position (MODE_FD).
-///
-/// This mirrors the official package's pure Python reader behavior: the object
-/// must provide `read()`. Raw integer OS file descriptors are not accepted.
-fn open_database_fd(database: &Bound<'_, PyAny>) -> PyResult<Reader> {
-    let filename = fd_database_name(database)?;
-    let buffer = database.call_method0("read")?.extract::<Vec<u8>>()?;
-    let py = database.py();
-    let reader = py.detach(move || reader_from_source(&filename, buffer))?;
-
-    Ok(create_reader(ReaderSource::Memory(reader)))
-}
-
-fn fd_database_name(database: &Bound<'_, PyAny>) -> PyResult<String> {
-    if let Ok(name) = database.getattr("name") {
-        if let Ok(name) = name.extract::<String>() {
-            return Ok(name);
-        }
-    }
-
-    let type_repr = database.get_type().repr()?.extract::<String>()?;
-    Ok(format!("<{type_repr}>"))
 }
 
 /// Open a MaxMind DB database file.
@@ -1532,40 +812,4 @@ fn maxminddb_rust(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("MODE_FD", MODE_FD)?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_ipv4_string;
-    use std::net::Ipv4Addr;
-
-    #[test]
-    fn parses_strict_ipv4_strings() {
-        assert_eq!(
-            parse_ipv4_string(b"0.1.2.255"),
-            Some(Ipv4Addr::new(0, 1, 2, 255))
-        );
-        assert_eq!(
-            parse_ipv4_string(b"192.0.2.1"),
-            Some(Ipv4Addr::new(192, 0, 2, 1))
-        );
-    }
-
-    #[test]
-    fn rejects_ipv4_strings_that_std_parser_rejects() {
-        for value in [
-            b"01.2.3.4".as_slice(),
-            b"1.02.3.4".as_slice(),
-            b"1.2.3.04".as_slice(),
-            b"1.2.3".as_slice(),
-            b"1.2.3.4.5".as_slice(),
-            b"1..2.3".as_slice(),
-            b"256.1.1.1".as_slice(),
-            b"1.2.3.4 ".as_slice(),
-            b" 1.2.3.4".as_slice(),
-            b"2001:db8::1".as_slice(),
-        ] {
-            assert_eq!(parse_ipv4_string(value), None);
-        }
-    }
 }

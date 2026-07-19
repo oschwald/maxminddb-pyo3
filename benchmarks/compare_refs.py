@@ -11,11 +11,14 @@ import time
 from pathlib import Path
 from typing import Any
 
+from _common import resolve_database
+
 
 BENCHMARK_RUNNER = r"""
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import random
 import socket
@@ -34,6 +37,18 @@ def generate_ips(count: int) -> list[str]:
     ]
 
 
+def generate_database_hit_ips(reader, count: int) -> list[str]:
+    sample_size = min(count, 4096)
+    samples = []
+    for network, _record in reader:
+        samples.append(str(network.network_address))
+        if len(samples) >= sample_size:
+            break
+    if not samples:
+        raise RuntimeError("database contains no records to benchmark")
+    return [samples[index % len(samples)] for index in range(count)]
+
+
 def chunks(values: list[str], size: int) -> list[list[str]]:
     return [values[start : start + size] for start in range(0, len(values), size)]
 
@@ -46,10 +61,14 @@ def main() -> None:
     parser.add_argument("--batch-size", required=True, type=int)
     parser.add_argument("--repeats", required=True, type=int)
     parser.add_argument("--warmups", required=True, type=int)
+    parser.add_argument("--workload", required=True, choices=("random", "database-hits"))
     args = parser.parse_args()
 
     reader = maxminddb_rust.open_database(args.file)
-    ips = generate_ips(args.count)
+    if args.workload == "database-hits":
+        ips = generate_database_hit_ips(reader, args.count)
+    else:
+        ips = generate_ips(args.count)
     batches = chunks(ips, args.batch_size)
     path = ("country", "iso_code")
     path_items = ["country", "iso_code"]
@@ -71,6 +90,14 @@ def main() -> None:
                 reader.get_many(batch)
             return len(ips)
 
+    elif args.case == "get_ipaddress":
+        ip_objects = [ipaddress.ip_address(ip) for ip in ips]
+
+        def run_once() -> int:
+            for ip in ip_objects:
+                reader.get(ip)
+            return len(ip_objects)
+
     elif args.case == "get_path":
         if not hasattr(reader, "get_path"):
             print(json.dumps({"supported": False}))
@@ -90,6 +117,14 @@ def main() -> None:
             for ip in ips:
                 reader.get_path(ip, tuple(path_items))
             return len(ips)
+
+    elif args.case == "get_path_ipaddress":
+        ip_objects = [ipaddress.ip_address(ip) for ip in ips]
+
+        def run_once() -> int:
+            for ip in ip_objects:
+                reader.get_path(ip, path)
+            return len(ip_objects)
 
     elif args.case == "get_path_list":
         if not hasattr(reader, "get_path"):
@@ -126,6 +161,28 @@ def main() -> None:
                     break
             return operations
 
+    elif args.case == "open_mmap":
+        reader.close()
+
+        def run_once() -> int:
+            for _ in range(args.count):
+                opened = maxminddb_rust.open_database(
+                    args.file, maxminddb_rust.MODE_MMAP
+                )
+                opened.close()
+            return args.count
+
+    elif args.case == "open_memory":
+        reader.close()
+
+        def run_once() -> int:
+            for _ in range(args.count):
+                opened = maxminddb_rust.open_database(
+                    args.file, maxminddb_rust.MODE_MEMORY
+                )
+                opened.close()
+            return args.count
+
     else:
         raise ValueError(f"unknown benchmark case: {args.case}")
 
@@ -157,7 +214,15 @@ if __name__ == "__main__":
 
 
 DEFAULT_CASES = ("get", "get_many", "get_path", "get_many_path", "iterate")
-ALL_CASES = (*DEFAULT_CASES, "get_path_new_tuple", "get_path_list")
+ALL_CASES = (
+    *DEFAULT_CASES,
+    "get_ipaddress",
+    "get_path_ipaddress",
+    "get_path_new_tuple",
+    "get_path_list",
+    "open_mmap",
+    "open_memory",
+)
 
 
 def run_command(
@@ -222,6 +287,7 @@ def benchmark_case(
     batch_size: int,
     repeats: int,
     warmups: int,
+    workload: str,
     root: Path,
     verbose: bool,
 ) -> dict[str, Any]:
@@ -242,6 +308,8 @@ def benchmark_case(
             str(repeats),
             "--warmups",
             str(warmups),
+            "--workload",
+            workload,
         ],
         cwd=root,
         verbose=verbose,
@@ -281,6 +349,7 @@ def build_summary(
     batch_size: int,
     repeats: int,
     warmups: int,
+    workload: str,
     cases: list[str],
     baseline_results: dict[str, dict[str, Any]],
     candidate_results: dict[str, dict[str, Any]],
@@ -324,6 +393,7 @@ def build_summary(
         "batch_size": batch_size,
         "repeats": repeats,
         "warmups": warmups,
+        "workload": workload,
         "max_regression_pct": max_regression_pct,
         "cases": case_summaries,
         "regressions": regressions,
@@ -374,13 +444,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidate-ref", default="HEAD")
     parser.add_argument(
         "--file",
-        default="tests/data/test-data/GeoIP2-City-Test.mmdb",
-        help="path to the mmdb file to benchmark",
+        default=None,
+        help=(
+            "path to the mmdb file to benchmark "
+            "(defaults to an installed database under /var/lib/GeoIP)"
+        ),
     )
     parser.add_argument("--count", type=int, default=250_000)
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--repeats", type=int, default=5)
     parser.add_argument("--warmups", type=int, default=1)
+    parser.add_argument(
+        "--workload",
+        choices=("random", "database-hits"),
+        default="random",
+        help="address workload to benchmark",
+    )
     parser.add_argument(
         "--case",
         action="append",
@@ -410,7 +489,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     root = repo_root()
-    database = Path(args.file)
+    database = resolve_database(args.file)
     if not database.is_absolute():
         database = root / database
     if args.batch_size <= 0:
@@ -470,6 +549,7 @@ def main() -> None:
                     batch_size=args.batch_size,
                     repeats=args.repeats,
                     warmups=args.warmups,
+                    workload=args.workload,
                     root=root,
                     verbose=args.verbose,
                 )
@@ -499,6 +579,7 @@ def main() -> None:
         batch_size=args.batch_size,
         repeats=args.repeats,
         warmups=args.warmups,
+        workload=args.workload,
         cases=cases,
         baseline_results=results["baseline"],
         candidate_results=results["candidate"],
@@ -520,6 +601,7 @@ def main() -> None:
                 Batch size: {args.batch_size:,}
                 Repeats: {args.repeats:,}
                 Warmups: {args.warmups:,}
+                Workload: {args.workload}
                 """
             ).rstrip()
         )
