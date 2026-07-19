@@ -79,6 +79,31 @@ def test_get_path_rejects_bool_path_element():
             reader.get_path("1.1.1.1", ("array", True))
 
 
+@pytest.mark.parametrize("index", [0, -1])
+def test_get_path_cache_rejects_index_like_elements(index):
+    class IndexLike:
+        def __init__(self, value):
+            self.value = value
+            self.calls = 0
+
+        def __index__(self):
+            self.calls += 1
+            return self.value
+
+    db_path = os.path.join(
+        os.path.dirname(__file__), "data", "test-data", "MaxMind-DB-test-decoder.mmdb"
+    )
+    with maxminddb_rust.open_database(db_path) as reader:
+        reader.get_path("1.1.1.1", ("array", index))
+
+        index_like = IndexLike(index)
+        with pytest.raises(
+            TypeError, match="Path elements must be strings or integers"
+        ):
+            reader.get_path("1.1.1.1", ("array", index_like))
+        assert index_like.calls == 0
+
+
 def test_get_path_negative_array_indexes():
     db_path = os.path.join(
         os.path.dirname(__file__), "data", "test-data", "MaxMind-DB-test-decoder.mmdb"
