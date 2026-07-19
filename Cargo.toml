@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 [dependencies]
 arc-swap = "1"
 ipnetwork = "0.21"
-maxminddb = { version = "0.29.0", features = ["simdutf8"] }
+maxminddb = { version = "0.30.0", features = ["simdutf8"] }
 memmap2 = "0.9"
 pyo3 = "0.29.0"
 rustc-hash = "2"

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Updated the `maxminddb` crate to 0.30.0.
 - Benchmarks now default to commonly installed databases under
   `/var/lib/GeoIP`, while retaining `--file` overrides for custom paths.
 - CI now tests every declared CPython version from 3.8 through 3.14, plus the
