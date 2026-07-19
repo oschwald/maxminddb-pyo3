@@ -28,14 +28,17 @@ pub(crate) fn path_tuple_matches_owned(
                 OwnedPathElement::Index(cached_index) => {
                     !item.is_instance_of::<PyBool>()
                         && item
-                            .extract::<usize>()
-                            .is_ok_and(|index| index == *cached_index)
+                            .cast::<PyInt>()
+                            .ok()
+                            .and_then(|value| value.extract::<usize>().ok())
+                            .is_some_and(|index| index == *cached_index)
                 }
                 OwnedPathElement::IndexFromEnd(cached_index) => {
                     !item.is_instance_of::<PyBool>()
                         && item
-                            .extract::<isize>()
+                            .cast::<PyInt>()
                             .ok()
+                            .and_then(|value| value.extract::<isize>().ok())
                             .map(signed_index_to_owned_path_element)
                             .is_some_and(|element| match element {
                                 OwnedPathElement::IndexFromEnd(index) => index == *cached_index,
