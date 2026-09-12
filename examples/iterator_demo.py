@@ -1,38 +1,37 @@
 #!/usr/bin/env python3
-"""
-Iterator usage example for maxminddb_rust module.
+"""Iterator usage example for maxminddb_rust module.
 
 Demonstrates how to iterate over all networks in a MaxMind DB database.
 This is useful for exporting data, analyzing database contents, or
 performing bulk operations.
 """
 
-import maxminddb_rust
+import csv
+import ipaddress
+import sys
 from collections import Counter
+from itertools import islice
+
+import maxminddb_rust
 
 # Path to your MaxMind database file
 # Note: Using Country database for faster iteration (smaller than City databases)
 DATABASE_PATH = "/var/lib/GeoIP/GeoLite2-Country.mmdb"
 
 
-def basic_iteration():
-    """Basic iteration over database networks."""
+def basic_iteration() -> None:
+    """Iterate over database networks."""
     print("\n1. Basic iteration - first 10 networks")
     print("-" * 60)
 
     with maxminddb_rust.open_database(DATABASE_PATH) as reader:
-        count = 0
-        for network, data in reader:
+        for network, data in islice(reader, 10):
             country_code = data.get("country", {}).get("iso_code", "N/A")
             country_name = data.get("country", {}).get("names", {}).get("en", "N/A")
-            print(f"   {str(network):20s} -> {country_code} ({country_name})")
-
-            count += 1
-            if count >= 10:
-                break
+            print(f"   {network!s:20s} -> {country_code} ({country_name})")
 
 
-def count_networks_by_country():
+def count_networks_by_country() -> None:
     """Count how many networks belong to each country."""
     print("\n2. Count networks by country (top 10)")
     print("-" * 60)
@@ -40,7 +39,7 @@ def count_networks_by_country():
     with maxminddb_rust.open_database(DATABASE_PATH) as reader:
         country_counter = Counter()
 
-        for network, data in reader:
+        for _network, data in reader:
             country_code = data.get("country", {}).get("iso_code", "Unknown")
             country_counter[country_code] += 1
 
@@ -49,12 +48,13 @@ def count_networks_by_country():
             print(f"   {country:3s}: {count:,} networks")
 
 
-def filter_networks():
+def filter_networks() -> None:
     """Filter networks by specific criteria."""
     print("\n3. Filter networks - US networks only (first 10)")
     print("-" * 60)
 
     with maxminddb_rust.open_database(DATABASE_PATH) as reader:
+        limit = 10
         count = 0
 
         for network, data in reader:
@@ -64,11 +64,11 @@ def filter_networks():
                 print(f"   {network}")
                 count += 1
 
-                if count >= 10:
+                if count >= limit:
                     break
 
 
-def get_network_statistics():
+def get_network_statistics() -> None:
     """Collect statistics about the database networks."""
     print("\n4. Network statistics")
     print("-" * 60)
@@ -84,7 +84,7 @@ def get_network_statistics():
             total_networks += 1
 
             # Check IP version
-            if network.version == 4:
+            if isinstance(network, ipaddress.IPv4Network):
                 ipv4_networks += 1
             else:
                 ipv6_networks += 1
@@ -107,38 +107,28 @@ def get_network_statistics():
         print(f"   Unique countries: {len(countries)}")
 
 
-def export_to_csv():
+def export_to_csv() -> None:
     """Export database contents to CSV format (first 20 entries)."""
     print("\n5. Export to CSV format (first 20 entries)")
     print("-" * 60)
-
-    import csv
-    import sys
 
     with maxminddb_rust.open_database(DATABASE_PATH) as reader:
         # Create CSV writer
         writer = csv.writer(sys.stdout)
         writer.writerow(["Network", "Country Code", "Country Name", "Continent Code"])
 
-        count = 0
-        for network, data in reader:
+        for network, data in islice(reader, 20):
             country_code = data.get("country", {}).get("iso_code", "")
             country_name = data.get("country", {}).get("names", {}).get("en", "")
             continent_code = data.get("continent", {}).get("code", "")
 
             writer.writerow([str(network), country_code, country_name, continent_code])
 
-            count += 1
-            if count >= 20:
-                break
 
-
-def search_for_network():
+def search_for_network() -> None:
     """Search for a specific IP address in the database by iterating."""
     print("\n6. Search for IP by iteration (8.8.8.8)")
     print("-" * 60)
-
-    import ipaddress
 
     target_ip = ipaddress.IPv4Address("8.8.8.8")
 
@@ -154,7 +144,7 @@ def search_for_network():
             print(f"   IP {target_ip} not found in database")
 
 
-def main():
+def main() -> None:
     """Run all iterator examples."""
     print("MaxMind DB Iterator Examples")
     print("=" * 60)

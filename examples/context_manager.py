@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Context manager usage example for maxminddb_rust module.
+"""Context manager usage example for maxminddb_rust module.
 
 Demonstrates the recommended way to use maxminddb_rust with Python's 'with' statement,
 which ensures the database is properly closed even if an error occurs.
@@ -12,8 +11,8 @@ import maxminddb_rust
 DATABASE_PATH = "/var/lib/GeoIP/GeoIP2-City.mmdb"
 
 
-def basic_context_manager():
-    """Basic context manager usage."""
+def basic_context_manager() -> None:
+    """Open and close a database with a context manager."""
     print("\n1. Basic context manager usage")
     print("-" * 60)
 
@@ -29,7 +28,7 @@ def basic_context_manager():
     print(f"   Database is closed after 'with' block: {reader.closed}")
 
 
-def context_manager_with_exception_handling():
+def context_manager_with_exception_handling() -> None:
     """Context manager with exception handling."""
     print("\n2. Context manager with exception handling")
     print("-" * 60)
@@ -51,18 +50,19 @@ def context_manager_with_exception_handling():
                         print(f"   {ip:15s} -> {country}")
                     else:
                         print(f"   {ip:15s} -> No data found")
-                except ValueError as e:
+                except ValueError as e:  # noqa: PERF203 - Report each invalid input.
                     print(f"   {ip:15s} -> Error: {e}")
 
-    except Exception as e:
+    except (OSError, maxminddb_rust.InvalidDatabaseError) as e:
         print(f"   Unexpected error: {e}")
+        return
 
     # Database is automatically closed even if an exception occurred
     print(f"   Database is closed: {reader.closed}")
 
 
-def multiple_databases():
-    """Using multiple databases simultaneously with context managers."""
+def multiple_databases() -> None:
+    """Use multiple databases simultaneously with context managers."""
     print("\n3. Using multiple databases simultaneously")
     print("-" * 60)
 
@@ -93,8 +93,8 @@ def multiple_databases():
     print(f"   Both databases closed: {city_reader.closed and country_reader.closed}")
 
 
-def context_manager_with_different_modes():
-    """Using context manager with different database modes."""
+def context_manager_with_different_modes() -> None:
+    """Use a context manager with different database modes."""
     print("\n4. Context manager with different database modes")
     print("-" * 60)
 
@@ -119,7 +119,7 @@ def context_manager_with_different_modes():
             print(f"      1.1.1.1 -> {country}")
 
 
-def main():
+def main() -> None:
     """Run all context manager examples."""
     print("MaxMind DB Context Manager Examples")
     print("=" * 60)

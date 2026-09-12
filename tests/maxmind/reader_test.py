@@ -8,11 +8,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import ipaddress
 import multiprocessing
 import os
 import pathlib
+import sys
 import threading
 import unittest
 from typing import TYPE_CHECKING, cast
@@ -26,24 +28,75 @@ except ImportError:
     maxminddb.extension = None  # type: ignore[assignment]
 
 from maxminddb_rust import (
-    InvalidDatabaseError,
     MODE_AUTO,
     MODE_FD,
     MODE_FILE,
     MODE_MEMORY,
     MODE_MMAP,
     MODE_MMAP_EXT,
+    InvalidDatabaseError,
     open_database,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from maxminddb_rust import Reader
+
+
+_TEST_DATA_DIR = "tests/data/test-data"
+
+
+@contextlib.contextmanager
+def _bounded(seconds: int = 60, address_space: int = 2 << 30) -> Iterator[None]:
+    """Fail, rather than hang or exhaust memory, if a limit regresses.
+
+    POSIX only. macOS refuses to lower RLIMIT_AS, and a process that already
+    uses more address space than the cap, such as one under AddressSanitizer,
+    would die on its next allocation; only the alarm applies in those cases.
+    """
+    if sys.platform == "win32":
+        yield
+        return
+    import resource  # noqa: PLC0415
+    import signal  # noqa: PLC0415
+
+    def on_alarm(*_: object) -> None:
+        msg = f"hostile decode did not stop within {seconds}s"
+        raise TimeoutError(msg)
+
+    def address_space_in_use() -> int:
+        # Linux only; elsewhere the size is unknown and the cap applies.
+        try:
+            with pathlib.Path("/proc/self/statm").open() as statm:
+                return int(statm.read().split()[0]) * resource.getpagesize()
+        except (OSError, ValueError):
+            return 0
+
+    cap_memory = sys.platform != "darwin" and address_space_in_use() < address_space
+    if cap_memory:
+        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        limit = address_space
+        if soft != resource.RLIM_INFINITY:
+            limit = min(limit, soft)
+        if hard != resource.RLIM_INFINITY:
+            limit = min(limit, hard)
+        resource.setrlimit(resource.RLIMIT_AS, (limit, hard))
+    old_handler = signal.signal(signal.SIGALRM, on_alarm)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+        if cap_memory:
+            resource.setrlimit(resource.RLIMIT_AS, (soft, hard))
 
 
 def get_reader_from_file_descriptor(filepath: str, mode: int) -> Reader:
     """Patches open_database() for class TestFDReader()."""
     if mode == MODE_FD:
-        with open(filepath, "rb") as mmdb_fh:
+        with pathlib.Path(filepath).open("rb") as mmdb_fh:
             return maxminddb.open_database(mmdb_fh, mode)
     else:
         # There are a few cases where mode is statically defined in
@@ -54,8 +107,12 @@ def get_reader_from_file_descriptor(filepath: str, mode: int) -> Reader:
 
 class BaseTestReader(unittest.TestCase):
     mode: int
-    reader_class: type[maxminddb.Reader | maxminddb.Reader]
+    reader_class: type[maxminddb.Reader]
     use_ip_objects = False
+    payload_error = "bad data"
+    value_count_error = "bad data"
+    fan_out_error = "bad data"
+    metadata_error = "Error opening database file"
 
     # fork doesn't work on Windows and spawn would involve pickling the reader,
     # which isn't possible.
@@ -67,7 +124,123 @@ class BaseTestReader(unittest.TestCase):
             return ipaddress.ip_address(ip)
         return ip
 
+    def _lookup_resource_record(self, filename: str, ip: str = "0.0.0.1") -> object:
+        # Each DoS fixture resolves any address to its single crafted record.
+        with open_database(f"{_TEST_DATA_DIR}/{filename}", self.mode) as reader:
+            return reader.get(self.ipf(ip))
+
+    def test_payload_amplification_is_rejected(self) -> None:
+        # An array of 8,192 pointers to one 65,535-byte value. The value count
+        # stays low, but copying each target would materialize about 512 MiB.
+        with _bounded(), self.assertRaisesRegex(
+            InvalidDatabaseError, self.payload_error
+        ):
+            self._lookup_resource_record(
+                "MaxMind-DB-test-payload-amplification-dos.mmdb"
+            )
+
+    def test_payload_amplification_string_is_rejected(self) -> None:
+        # The UTF-8 string variant, so the decode path for strings is exercised.
+        with _bounded(), self.assertRaisesRegex(
+            InvalidDatabaseError, self.payload_error
+        ):
+            self._lookup_resource_record(
+                "MaxMind-DB-test-payload-amplification-dos-string.mmdb"
+            )
+
+    def test_payload_amplification_worst_case_is_rejected(self) -> None:
+        # 65,535 pointers to one 65,535-byte value. The record is exactly
+        # 65,536 values under the flat rule, so only the payload budget can
+        # reject it.
+        with _bounded(), self.assertRaisesRegex(
+            InvalidDatabaseError, self.payload_error
+        ):
+            self._lookup_resource_record(
+                "MaxMind-DB-test-payload-amplification-dos-worst-case.mmdb"
+            )
+
+    def test_value_count_boundary(self) -> None:
+        # The at-limit fixture decodes to exactly 65,536 values and must decode.
+        # The pointer-heavy fixture reaches 65,535 values through pointers,
+        # which cost nothing beyond the values they resolve to. One value more
+        # than the limit is rejected.
+        self.assertIsInstance(
+            self._lookup_resource_record("MaxMind-DB-test-decoder-value-limit.mmdb"),
+            list,
+        )
+        self.assertIsInstance(
+            self._lookup_resource_record(
+                "MaxMind-DB-test-decoder-value-limit-pointer-heavy.mmdb"
+            ),
+            list,
+        )
+        with self.assertRaisesRegex(InvalidDatabaseError, self.value_count_error):
+            self._lookup_resource_record(
+                "MaxMind-DB-test-decoder-value-limit-over.mmdb"
+            )
+
+    def test_pointer_fan_out_fixture_is_rejected(self) -> None:
+        # A full database whose record nests arrays of pointers to the level
+        # below, the classic 2**depth fan-out.
+        with _bounded(), self.assertRaisesRegex(
+            InvalidDatabaseError, self.fan_out_error
+        ):
+            self._lookup_resource_record("MaxMind-DB-test-pointer-decoder-dos.mmdb")
+
+    def test_pointer_fan_out_ipv6_fixture_is_rejected(self) -> None:
+        # The same fan-out in a conventional IPv6 database that maps the whole
+        # address space to the record, so the IPv6 tree path is covered too.
+        with _bounded(), self.assertRaisesRegex(
+            InvalidDatabaseError, self.fan_out_error
+        ):
+            self._lookup_resource_record(
+                "MaxMind-DB-test-pointer-decoder-dos-ipv6.mmdb", "2001:db8::1"
+            )
+
+    def test_payload_at_limit_is_accepted(self) -> None:
+        # References totaling exactly 2 MiB of payload decode successfully, so
+        # the limit does not reject a record at the boundary.
+        self.assertIsInstance(
+            self._lookup_resource_record("MaxMind-DB-test-decoder-payload-limit.mmdb"),
+            list,
+        )
+
+    def test_payload_one_over_limit_is_rejected(self) -> None:
+        # One byte more than 2 MiB is rejected, catching an off-by-one.
+        with self.assertRaisesRegex(InvalidDatabaseError, self.payload_error):
+            self._lookup_resource_record(
+                "MaxMind-DB-test-decoder-payload-limit-over.mmdb"
+            )
+
+    def test_metadata_payload_limit_is_enforced_on_open(self) -> None:
+        # Metadata must stay within the payload limit when the database is opened.
+        with _bounded(), self.assertRaisesRegex(
+            InvalidDatabaseError, self.metadata_error
+        ), open_database(
+            f"{_TEST_DATA_DIR}/MaxMind-DB-test-metadata-payload-limit.mmdb", self.mode
+        ):
+            pass
+
+    def test_normal_record_still_decodes(self) -> None:
+        # A record with ordinary string and bytes values, which the payload
+        # budget also charges, decodes unchanged.
+        record = cast(
+            "dict",
+            self._lookup_resource_record("MaxMind-DB-test-decoder.mmdb", "::1.1.1.0"),
+        )
+        self.assertEqual(record["utf8_string"], "unicode! ☯ - ♫")
+        self.assertEqual(record["bytes"], b"\x00\x00\x00*")
+
+    def test_search_tree_past_end_of_file(self) -> None:
+        # The Rust reader validates the tree size when opening the database.
+        with self.assertRaises(InvalidDatabaseError):
+            open_database(
+                f"{_TEST_DATA_DIR}/GeoIP2-City-Test-Invalid-Node-Count.mmdb",
+                self.mode,
+            )
+
     def test_reader(self) -> None:
+        ipv4_version = 4
         for record_size in [24, 28, 32]:
             for ip_version in [4, 6]:
                 file_name = (
@@ -81,7 +254,7 @@ class BaseTestReader(unittest.TestCase):
 
                 self._check_metadata(reader, ip_version, record_size)
 
-                if ip_version == 4:
+                if ip_version == ipv4_version:
                     self._check_ip_v4(reader, file_name)
                 else:
                     self._check_ip_v6(reader, file_name)
@@ -454,7 +627,8 @@ class BaseTestReader(unittest.TestCase):
         metadata = reader.metadata()
         with self.assertRaisesRegex(
             AttributeError,
-            r"'((maxminddb(_rust)?\.)?(extension\.)?)?Metadata' object has no attribute 'blah'",
+            r"'((maxminddb(_rust)?\.)?(extension\.)?)?Metadata' "
+            r"object has no attribute 'blah'",
         ):
             metadata.blah  # type:  ignore[attr-defined]  # noqa: B018
         reader.close()
@@ -503,9 +677,8 @@ class BaseTestReader(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError,
             "Attempt to reopen a closed MaxMind DB",
-        ):
-            with reader:
-                pass
+        ), reader:
+            pass
 
     def test_closed(self) -> None:
         reader = open_database(
@@ -538,7 +711,7 @@ class BaseTestReader(unittest.TestCase):
 
     def test_reading_from_buffer(self) -> None:
         filename = "tests/data/test-data/MaxMind-DB-test-ipv4-24.mmdb"
-        with open(filename, "rb") as f:
+        with pathlib.Path(filename).open("rb") as f:
             buf = io.BytesIO(f.read())
         # we have to use unpatched open_database here because the patched version
         # calls open() on our buffer
@@ -548,10 +721,10 @@ class BaseTestReader(unittest.TestCase):
 
     if os.name != "nt":
 
-        def test_multiprocessing(self):
+        def test_multiprocessing(self) -> None:
             self._check_concurrency(self.mp.Process)
 
-        def test_threading(self):
+        def test_threading(self) -> None:
             self._check_concurrency(threading.Thread)
 
         def _check_concurrency(self, worker_class) -> None:  # noqa: ANN001
@@ -691,11 +864,7 @@ class TestExtensionReaderWithIPObjects(BaseTestReader):
 class TestAutoReader(BaseTestReader):
     mode = MODE_AUTO
 
-    reader_class: type[maxminddb.Reader | maxminddb.Reader]
-    if has_maxminddb_extension():
-        reader_class = maxminddb.Reader
-    else:
-        reader_class = maxminddb.Reader
+    reader_class = maxminddb.Reader
 
 
 class TestMMAPReader(BaseTestReader):
@@ -730,6 +899,23 @@ class TestFDReader(BaseTestReader):
 
     mode = MODE_FD
     reader_class = maxminddb.Reader
+
+
+class TestReaderInitialization(unittest.TestCase):
+    def test_invalid_tree_metadata_is_rejected_on_open(self) -> None:
+        data = pathlib.Path(
+            f"{_TEST_DATA_DIR}/MaxMind-DB-test-ipv4-24.mmdb"
+        ).read_bytes()
+        cases = (
+            (b"record_size\xa1\x18", b"record_size\xa1\x1e"),
+            (b"node_count\xc1\xa3", b"node_count\x04\x01\xff\xff\xff\xff"),
+        )
+        for original, replacement in cases:
+            with self.subTest(field=original):
+                self.assertEqual(data.count(original), 1)
+                database = io.BytesIO(data.replace(original, replacement))
+                with self.assertRaises(InvalidDatabaseError):
+                    maxminddb.Reader(database, MODE_FD)
 
 
 class TestOldReader(unittest.TestCase):

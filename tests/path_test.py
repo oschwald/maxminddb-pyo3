@@ -1,14 +1,12 @@
-import os
+from pathlib import Path
 
 import pytest
 
 import maxminddb_rust
 
 
-def test_get_path():
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+def test_get_path() -> None:
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
     with maxminddb_rust.open_database(db_path) as reader:
         ip = "81.2.69.142"
 
@@ -39,10 +37,8 @@ def test_get_path():
             )
 
 
-def test_get_path_ipv6():
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+def test_get_path_ipv6() -> None:
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
     with maxminddb_rust.open_database(db_path) as reader:
         ip = "2001:2b8::"
 
@@ -50,10 +46,8 @@ def test_get_path_ipv6():
         assert reader.get_path(ip, ("continent", "names", "en")) == "Asia"
 
 
-def test_get_path_invalid_types():
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+def test_get_path_invalid_types() -> None:
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
     with maxminddb_rust.open_database(db_path) as reader:
         ip = "81.2.69.142"
 
@@ -65,33 +59,32 @@ def test_get_path_invalid_types():
 
         # Invalid path argument type (not a sequence)
         with pytest.raises(TypeError, match="Path must be a sequence"):
-            reader.get_path(ip, "country")  # type: ignore
+            reader.get_path(ip, "country")
 
 
-def test_get_path_rejects_bool_path_element():
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "MaxMind-DB-test-decoder.mmdb"
+def test_get_path_rejects_bool_path_element() -> None:
+    db_path = (
+        Path(__file__).parent / "data" / "test-data" / "MaxMind-DB-test-decoder.mmdb"
     )
-    with maxminddb_rust.open_database(db_path) as reader:
-        with pytest.raises(
-            TypeError, match="Path elements must be strings or integers"
-        ):
-            reader.get_path("1.1.1.1", ("array", True))
+    with maxminddb_rust.open_database(db_path) as reader, pytest.raises(
+        TypeError, match="Path elements must be strings or integers"
+    ):
+        reader.get_path("1.1.1.1", ("array", True))
 
 
 @pytest.mark.parametrize("index", [0, -1])
-def test_get_path_cache_rejects_index_like_elements(index):
+def test_get_path_cache_rejects_index_like_elements(index: int) -> None:
     class IndexLike:
-        def __init__(self, value):
+        def __init__(self, value: int) -> None:
             self.value = value
             self.calls = 0
 
-        def __index__(self):
+        def __index__(self) -> int:
             self.calls += 1
             return self.value
 
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "MaxMind-DB-test-decoder.mmdb"
+    db_path = (
+        Path(__file__).parent / "data" / "test-data" / "MaxMind-DB-test-decoder.mmdb"
     )
     with maxminddb_rust.open_database(db_path) as reader:
         reader.get_path("1.1.1.1", ("array", index))
@@ -104,20 +97,19 @@ def test_get_path_cache_rejects_index_like_elements(index):
         assert index_like.calls == 0
 
 
-def test_get_path_negative_array_indexes():
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "MaxMind-DB-test-decoder.mmdb"
+def test_get_path_negative_array_indexes() -> None:
+    db_path = (
+        Path(__file__).parent / "data" / "test-data" / "MaxMind-DB-test-decoder.mmdb"
     )
     with maxminddb_rust.open_database(db_path) as reader:
-        assert reader.get_path("1.1.1.1", ("array", -1)) == 3
+        expected = [1, 2, 3]
+        assert reader.get_path("1.1.1.1", ("array", -1)) == expected[-1]
         assert reader.get_path("1.1.1.1", ("array", -3)) == 1
         assert reader.get_path("1.1.1.1", ("array", -4)) is None
 
 
-def test_get_path_closed_db():
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+def test_get_path_closed_db() -> None:
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
     reader = maxminddb_rust.open_database(db_path)
     reader.close()
 
@@ -125,10 +117,8 @@ def test_get_path_closed_db():
         reader.get_path("81.2.69.142", ("country", "iso_code"))
 
 
-def test_get_path_mixed_invalid():
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+def test_get_path_mixed_invalid() -> None:
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
     with maxminddb_rust.open_database(db_path) as reader:
         ip = "81.2.69.142"
 

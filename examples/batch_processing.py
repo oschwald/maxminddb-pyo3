@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Batch processing example for maxminddb_rust module.
+"""Batch processing example for maxminddb_rust module.
 
 Demonstrates the use of the get_many() extension method for efficient
 batch IP lookups. This method is significantly faster than calling get()
@@ -11,15 +10,17 @@ Note: get_many() is an extension method not available in the official
 maxminddb package.
 """
 
+from __future__ import annotations
+
 import time
+
 import maxminddb_rust
-from typing import List
 
 # Path to your MaxMind database file
 DATABASE_PATH = "/var/lib/GeoIP/GeoIP2-City.mmdb"
 
 
-def generate_sample_ips(count: int = 100) -> List[str]:
+def generate_sample_ips(count: int = 100) -> list[str]:
     """Generate a list of sample IP addresses for testing."""
     sample_ips = [
         "8.8.8.8",  # Google DNS
@@ -42,8 +43,8 @@ def generate_sample_ips(count: int = 100) -> List[str]:
     return result[:count]
 
 
-def basic_batch_lookup():
-    """Basic usage of get_many() for batch lookups."""
+def basic_batch_lookup() -> None:
+    """Look up a batch of IP addresses with get_many()."""
     print("\n1. Basic batch lookup")
     print("-" * 60)
 
@@ -68,7 +69,7 @@ def basic_batch_lookup():
                 print(f"   {ip:15s} -> No data found")
 
 
-def performance_comparison():
+def performance_comparison() -> None:
     """Compare performance of get() vs get_many()."""
     print("\n2. Performance comparison: get() vs get_many()")
     print("-" * 60)
@@ -79,9 +80,7 @@ def performance_comparison():
         # Method 1: Individual get() calls
         print(f"   Testing {len(ips)} lookups with individual get() calls...")
         start = time.time()
-        results_individual = []
-        for ip in ips:
-            results_individual.append(reader.get(ip))
+        _ = [reader.get(ip) for ip in ips]
         time_individual = time.time() - start
 
         # Method 2: Batch get_many() call
@@ -97,7 +96,7 @@ def performance_comparison():
         print(f"   Throughput (get_many): {len(ips) / time_batch:,.0f} lookups/sec")
 
 
-def process_log_file_simulation():
+def process_log_file_simulation() -> None:
     """Simulate processing a log file with batch lookups."""
     print("\n3. Simulated log file processing")
     print("-" * 60)
@@ -121,7 +120,7 @@ def process_log_file_simulation():
         results = reader.get_many(ips)
 
         # Process results
-        for log_entry, ip, geo_data in zip(log_entries, ips, results):
+        for log_entry, _ip, geo_data in zip(log_entries, ips, results):
             if geo_data:
                 country = geo_data.get("country", {}).get("iso_code", "??")
                 city = geo_data.get("city", {}).get("names", {}).get("en", "Unknown")
@@ -132,7 +131,7 @@ def process_log_file_simulation():
             print(f"   [{country}] {city:15s} - {log_entry}")
 
 
-def aggregate_statistics():
+def aggregate_statistics() -> None:
     """Aggregate statistics from batch lookup results."""
     print("\n4. Aggregate statistics from batch lookups")
     print("-" * 60)
@@ -172,7 +171,7 @@ def aggregate_statistics():
             print(f"      {city:20s}: {count:3d} IPs")
 
 
-def batch_with_error_handling():
+def batch_with_error_handling() -> None:
     """Demonstrate error handling with batch lookups."""
     print("\n5. Batch lookup with error handling")
     print("-" * 60)
@@ -194,7 +193,7 @@ def batch_with_error_handling():
             print("   Note: get_many() fails fast on the first invalid IP")
 
 
-def chunked_batch_processing():
+def chunked_batch_processing() -> None:
     """Process large datasets in chunks using get_many()."""
     print("\n6. Chunked batch processing for large datasets")
     print("-" * 60)
@@ -225,7 +224,7 @@ def chunked_batch_processing():
         print(f"   Throughput: {total_processed / elapsed:,.0f} lookups/sec")
 
 
-def main():
+def main() -> None:
     """Run all batch processing examples."""
     print("MaxMind DB Batch Processing Examples")
     print("=" * 60)

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Measure lookup throughput across worker threads."""
 
 from __future__ import annotations
 
@@ -9,12 +10,13 @@ import socket
 import struct
 import time
 
-import maxminddb_rust
-
 from _common import default_databases, resolve_database
+
+import maxminddb_rust
 
 
 def chunks(values: list[str], workers: int) -> list[list[str]]:
+    """Divide addresses into balanced, private lists for each worker."""
     base = len(values) // workers
     remainder = len(values) % workers
     result = []
@@ -28,6 +30,7 @@ def chunks(values: list[str], workers: int) -> list[list[str]]:
 
 
 def main() -> None:
+    """Run the benchmark command and report its results."""
     parser = argparse.ArgumentParser(
         description="Benchmark maxminddb threaded lookups with a shared Reader."
     )
@@ -44,7 +47,8 @@ def main() -> None:
         int(value.strip()) for value in args.workers.split(",") if value.strip()
     ]
     if not worker_counts or any(w <= 0 for w in worker_counts):
-        raise ValueError("--workers must contain one or more positive integers")
+        msg = "--workers must contain one or more positive integers"
+        raise ValueError(msg)
 
     if args.file:
         paths = [resolve_database(args.file)]

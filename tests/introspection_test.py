@@ -5,7 +5,6 @@ from pathlib import Path
 
 import maxminddb_rust
 
-
 STUB_PATH = Path(__file__).resolve().parents[1] / "maxminddb_rust.pyi"
 
 
@@ -29,7 +28,8 @@ def _stub_all(tree: ast.Module) -> list[str]:
             for element in node.value.elts
             if isinstance(element, ast.Constant) and isinstance(element.value, str)
         ]
-    raise AssertionError("__all__ not found in maxminddb_rust.pyi")
+    msg = "__all__ not found in maxminddb_rust.pyi"
+    raise AssertionError(msg)
 
 
 def _stub_class_member_names(tree: ast.Module, class_name: str) -> set[str]:
@@ -44,7 +44,8 @@ def _stub_class_member_names(tree: ast.Module, class_name: str) -> set[str]:
                 ):
                     members.add(child.target.id)
             return members
-    raise AssertionError(f"{class_name} not found in maxminddb_rust.pyi")
+    msg = f"{class_name} not found in maxminddb_rust.pyi"
+    raise AssertionError(msg)
 
 
 def _literal_value(annotation: ast.expr) -> int | None:

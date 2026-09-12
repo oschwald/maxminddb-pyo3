@@ -1,8 +1,10 @@
 #!/usr/bin/python
-"""
-Comprehensive benchmark for maxminddb module.
+"""Comprehensive benchmark for maxminddb module.
+
 Tests various lookup patterns and database sizes.
 """
+
+from __future__ import annotations
 
 import argparse
 import random
@@ -10,12 +12,13 @@ import socket
 import struct
 import timeit
 
-import maxminddb_rust
-
 from _common import default_databases, resolve_database
 
+import maxminddb_rust
 
-def generate_ips(count):
+
+def generate_ips(count: int) -> list[str]:
+    """Generate a reproducible sequence of random IPv4 addresses."""
     random.seed(0)
     return [
         socket.inet_ntoa(struct.pack("!L", random.getrandbits(32)))
@@ -23,17 +26,17 @@ def generate_ips(count):
     ]
 
 
-def format_number(n):
+def format_number(n: float) -> str:
     """Format number with thousands separator."""
     return f"{int(n):,}"
 
 
-def run_benchmark(file_path, count, description):
+def run_benchmark(file_path: str, count: int, description: str) -> float:
     """Run a single benchmark and return results."""
     reader = maxminddb_rust.open_database(file_path)
     ips = generate_ips(count)
 
-    def lookup_ip_addresses():
+    def lookup_ip_addresses() -> None:
         for ip in ips:
             reader.get(ip)
 
@@ -51,7 +54,8 @@ def run_benchmark(file_path, count, description):
     return lookups_per_sec
 
 
-def main():
+def main() -> None:
+    """Run the benchmark command and report its results."""
     parser = argparse.ArgumentParser(description="Comprehensive maxminddb benchmarks")
     parser.add_argument(
         "--count", default=250000, type=int, help="number of lookups per test"
@@ -90,7 +94,7 @@ def main():
         try:
             result = run_benchmark(db_path, args.count, description)
             results.append((description, result))
-        except Exception as e:
+        except (OSError, ValueError, maxminddb_rust.InvalidDatabaseError) as e:  # noqa: PERF203 - Report each database independently.
             print(f"{description:50s} {'Error: ' + str(e):>15s}")
 
     if results:
