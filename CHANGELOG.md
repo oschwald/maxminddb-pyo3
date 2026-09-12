@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Databases that exceed the new decoding limits now raise `InvalidDatabaseError`,
   including databases that previously decoded successfully.
 - Updated Rust and Python dependencies and the MaxMind-DB test submodule.
+- Dependabot now covers all Cargo and Python dependency types and test-submodule
+  updates, with seven-day cooldowns across all ecosystems.
 - Synced applicable reader tests from the official Python reader's 3.2.0 release,
   including bounded payload-amplification and pointer fan-out tests.
 
