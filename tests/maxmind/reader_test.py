@@ -76,11 +76,11 @@ def _bounded(seconds: int = 60, address_space: int = 2 << 30) -> Iterator[None]:
     cap_memory = sys.platform != "darwin" and address_space_in_use() < address_space
     if cap_memory:
         soft, hard = resource.getrlimit(resource.RLIMIT_AS)
-        limit = (
-            address_space
-            if hard == resource.RLIM_INFINITY
-            else min(address_space, hard)
-        )
+        limit = address_space
+        if soft != resource.RLIM_INFINITY:
+            limit = min(limit, soft)
+        if hard != resource.RLIM_INFINITY:
+            limit = min(limit, hard)
         resource.setrlimit(resource.RLIMIT_AS, (limit, hard))
     old_handler = signal.signal(signal.SIGALRM, on_alarm)
     signal.alarm(seconds)
