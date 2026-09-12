@@ -603,9 +603,9 @@ impl Reader {
     #[inline]
     fn lookup_error(err: MaxMindDbError) -> PyErr {
         match err {
-            MaxMindDbError::InvalidDatabase { .. } | MaxMindDbError::Decoding { .. } => {
-                InvalidDatabaseError::new_err(ERR_BAD_DATA)
-            }
+            MaxMindDbError::InvalidDatabase { .. }
+            | MaxMindDbError::Decoding { .. }
+            | MaxMindDbError::ResourceLimit { .. } => InvalidDatabaseError::new_err(ERR_BAD_DATA),
             other => PyValueError::new_err(format!("Database error: {other}")),
         }
     }
