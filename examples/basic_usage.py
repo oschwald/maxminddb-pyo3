@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""
-Basic usage example for maxminddb_rust module.
+"""Basic usage example for maxminddb_rust module.
 
 Demonstrates simple IP address lookups using maxminddb_rust,
 a high-performance Rust-based alternative to the original Python maxminddb package.
 """
+
+import ipaddress
 
 import maxminddb_rust
 
@@ -12,7 +13,7 @@ import maxminddb_rust
 DATABASE_PATH = "/var/lib/GeoIP/GeoIP2-City.mmdb"
 
 
-def main():
+def main() -> None:
     """Demonstrate basic maxminddb usage."""
     print("MaxMind DB Basic Usage Example")
     print("=" * 60)
@@ -36,7 +37,6 @@ def main():
 
     # Example 2: Lookup with ipaddress module objects
     print("\n2. Looking up IP address using ipaddress module: 1.1.1.1")
-    import ipaddress
 
     ip = ipaddress.IPv4Address("1.1.1.1")
     result = reader.get(ip)

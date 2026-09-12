@@ -12,11 +12,9 @@ import maxminddb_rust
 
 
 def test_mode_fd_opens_file_object() -> None:
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
 
-    with open(db_path, "rb") as database:
+    with db_path.open("rb") as database:
         reader = maxminddb_rust.open_database(database, maxminddb_rust.MODE_FD)
 
     try:
@@ -26,11 +24,9 @@ def test_mode_fd_opens_file_object() -> None:
 
 
 def test_mode_fd_opens_bytes_io() -> None:
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
 
-    with open(db_path, "rb") as database:
+    with db_path.open("rb") as database:
         database_buffer = io.BytesIO(database.read())
 
     reader = maxminddb_rust.open_database(database_buffer, maxminddb_rust.MODE_FD)
@@ -53,9 +49,7 @@ def test_mode_file_requires_pathlike_database() -> None:
 
 
 def test_mode_file_opens_pathlike_database() -> None:
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
 
     reader = maxminddb_rust.open_database(db_path, maxminddb_rust.MODE_FILE)
     try:
@@ -70,9 +64,7 @@ def test_mode_file_opens_pathlike_database() -> None:
 )
 @pytest.mark.parametrize("mode", [maxminddb_rust.MODE_MMAP, maxminddb_rust.MODE_FILE])
 def test_path_with_surrogate_escape(mode: int, tmp_path: Path) -> None:
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
     raw_path = os.fsencode(tmp_path) + b"/city-\xff.mmdb"
     shutil.copyfile(db_path, raw_path)
 
@@ -86,7 +78,8 @@ def test_path_with_surrogate_escape(mode: int, tmp_path: Path) -> None:
 def test_pathlike_exception_is_preserved() -> None:
     class BrokenPath:
         def __fspath__(self) -> str:
-            raise RuntimeError("broken path")
+            msg = "broken path"
+            raise RuntimeError(msg)
 
     with pytest.raises(RuntimeError, match="broken path"):
         maxminddb_rust.open_database(BrokenPath())

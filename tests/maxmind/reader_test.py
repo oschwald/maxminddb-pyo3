@@ -26,13 +26,13 @@ except ImportError:
     maxminddb.extension = None  # type: ignore[assignment]
 
 from maxminddb_rust import (
-    InvalidDatabaseError,
     MODE_AUTO,
     MODE_FD,
     MODE_FILE,
     MODE_MEMORY,
     MODE_MMAP,
     MODE_MMAP_EXT,
+    InvalidDatabaseError,
     open_database,
 )
 
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 def get_reader_from_file_descriptor(filepath: str, mode: int) -> Reader:
     """Patches open_database() for class TestFDReader()."""
     if mode == MODE_FD:
-        with open(filepath, "rb") as mmdb_fh:
+        with pathlib.Path(filepath).open("rb") as mmdb_fh:
             return maxminddb.open_database(mmdb_fh, mode)
     else:
         # There are a few cases where mode is statically defined in
@@ -54,7 +54,7 @@ def get_reader_from_file_descriptor(filepath: str, mode: int) -> Reader:
 
 class BaseTestReader(unittest.TestCase):
     mode: int
-    reader_class: type[maxminddb.Reader | maxminddb.Reader]
+    reader_class: type[maxminddb.Reader]
     use_ip_objects = False
 
     # fork doesn't work on Windows and spawn would involve pickling the reader,
@@ -68,6 +68,7 @@ class BaseTestReader(unittest.TestCase):
         return ip
 
     def test_reader(self) -> None:
+        ipv4_version = 4
         for record_size in [24, 28, 32]:
             for ip_version in [4, 6]:
                 file_name = (
@@ -81,7 +82,7 @@ class BaseTestReader(unittest.TestCase):
 
                 self._check_metadata(reader, ip_version, record_size)
 
-                if ip_version == 4:
+                if ip_version == ipv4_version:
                     self._check_ip_v4(reader, file_name)
                 else:
                     self._check_ip_v6(reader, file_name)
@@ -454,7 +455,8 @@ class BaseTestReader(unittest.TestCase):
         metadata = reader.metadata()
         with self.assertRaisesRegex(
             AttributeError,
-            r"'((maxminddb(_rust)?\.)?(extension\.)?)?Metadata' object has no attribute 'blah'",
+            r"'((maxminddb(_rust)?\.)?(extension\.)?)?Metadata' "
+            r"object has no attribute 'blah'",
         ):
             metadata.blah  # type:  ignore[attr-defined]  # noqa: B018
         reader.close()
@@ -503,9 +505,8 @@ class BaseTestReader(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError,
             "Attempt to reopen a closed MaxMind DB",
-        ):
-            with reader:
-                pass
+        ), reader:
+            pass
 
     def test_closed(self) -> None:
         reader = open_database(
@@ -538,7 +539,7 @@ class BaseTestReader(unittest.TestCase):
 
     def test_reading_from_buffer(self) -> None:
         filename = "tests/data/test-data/MaxMind-DB-test-ipv4-24.mmdb"
-        with open(filename, "rb") as f:
+        with pathlib.Path(filename).open("rb") as f:
             buf = io.BytesIO(f.read())
         # we have to use unpatched open_database here because the patched version
         # calls open() on our buffer
@@ -548,10 +549,10 @@ class BaseTestReader(unittest.TestCase):
 
     if os.name != "nt":
 
-        def test_multiprocessing(self):
+        def test_multiprocessing(self) -> None:
             self._check_concurrency(self.mp.Process)
 
-        def test_threading(self):
+        def test_threading(self) -> None:
             self._check_concurrency(threading.Thread)
 
         def _check_concurrency(self, worker_class) -> None:  # noqa: ANN001
@@ -691,11 +692,7 @@ class TestExtensionReaderWithIPObjects(BaseTestReader):
 class TestAutoReader(BaseTestReader):
     mode = MODE_AUTO
 
-    reader_class: type[maxminddb.Reader | maxminddb.Reader]
-    if has_maxminddb_extension():
-        reader_class = maxminddb.Reader
-    else:
-        reader_class = maxminddb.Reader
+    reader_class = maxminddb.Reader
 
 
 class TestMMAPReader(BaseTestReader):

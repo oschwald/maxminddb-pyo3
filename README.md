@@ -136,9 +136,7 @@ Iterate over all networks in the database:
 ```python
 import maxminddb_rust
 
-with maxminddb_rust.open_database(
-    "/var/lib/GeoIP/GeoLite2-Country.mmdb"
-) as reader:
+with maxminddb_rust.open_database("/var/lib/GeoIP/GeoLite2-Country.mmdb") as reader:
     for network, data in reader:
         print(f"{network}: {data['country']['iso_code']}")
 ```
@@ -214,6 +212,7 @@ uv run python examples/batch_processing.py
 
   ```python
   import maxminddb_rust
+
   help(maxminddb_rust.open_database)
   help(maxminddb_rust.Reader.get)
   ```

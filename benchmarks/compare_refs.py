@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+"""Build isolated git refs and compare their benchmark throughput."""
+
 from __future__ import annotations
 
 import argparse
@@ -12,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 from _common import resolve_database
-
 
 BENCHMARK_RUNNER = r"""
 from __future__ import annotations
@@ -61,7 +62,9 @@ def main() -> None:
     parser.add_argument("--batch-size", required=True, type=int)
     parser.add_argument("--repeats", required=True, type=int)
     parser.add_argument("--warmups", required=True, type=int)
-    parser.add_argument("--workload", required=True, choices=("random", "database-hits"))
+    parser.add_argument(
+        "--workload", required=True, choices=("random", "database-hits")
+    )
     args = parser.parse_args()
 
     reader = maxminddb_rust.open_database(args.file)
@@ -232,9 +235,10 @@ def run_command(
     verbose: bool,
     capture_output: bool = False,
 ) -> subprocess.CompletedProcess[str]:
+    """Run an argument vector and propagate command failures."""
     if verbose:
         print("+", " ".join(command), file=sys.stderr)
-    return subprocess.run(
+    return subprocess.run(  # noqa: S603 - Internal argument vectors; no shell.
         command,
         check=True,
         cwd=cwd,
@@ -244,10 +248,12 @@ def run_command(
 
 
 def repo_root() -> Path:
+    """Return the repository containing this benchmark script."""
     return Path(__file__).resolve().parents[1]
 
 
 def safe_ref_name(ref: str) -> str:
+    """Convert a git ref into a safe temporary-directory component."""
     return "".join(ch if ch.isalnum() else "-" for ch in ref).strip("-") or "ref"
 
 
@@ -259,6 +265,7 @@ def prepare_ref(
     root: Path,
     verbose: bool,
 ) -> tuple[Path, Path]:
+    """Build a git ref in its own worktree and Python environment."""
     safe_name = f"{label}-{safe_ref_name(ref)}"
     worktree = base_dir / f"worktree-{safe_name}"
     venv = base_dir / f"venv-{safe_name}"
@@ -278,7 +285,8 @@ def prepare_ref(
     return worktree, python
 
 
-def benchmark_case(
+# Keep measurement settings explicit for callers that orchestrate repeated runs.
+def benchmark_case(  # noqa: PLR0913
     python: Path,
     *,
     case: str,
@@ -291,6 +299,7 @@ def benchmark_case(
     root: Path,
     verbose: bool,
 ) -> dict[str, Any]:
+    """Run one workload in the requested Python environment."""
     result = run_command(
         [
             str(python),
@@ -319,12 +328,14 @@ def benchmark_case(
 
 
 def format_rate(result: dict[str, Any]) -> str:
+    """Format supported throughput values for the result table."""
     if not result.get("supported"):
         return "-"
     return f"{result['median']:,.0f}"
 
 
 def format_delta(baseline: dict[str, Any], candidate: dict[str, Any]) -> str:
+    """Format the percentage change between supported measurements."""
     delta = delta_percent(baseline, candidate)
     if delta is None:
         return "-"
@@ -332,6 +343,7 @@ def format_delta(baseline: dict[str, Any], candidate: dict[str, Any]) -> str:
 
 
 def delta_percent(baseline: dict[str, Any], candidate: dict[str, Any]) -> float | None:
+    """Calculate candidate throughput change relative to the baseline."""
     if not baseline.get("supported") or not candidate.get("supported"):
         return None
     baseline_median = baseline["median"]
@@ -340,7 +352,8 @@ def delta_percent(baseline: dict[str, Any], candidate: dict[str, Any]) -> float 
     return (candidate["median"] / baseline_median - 1) * 100
 
 
-def build_summary(
+# Preserve the full measurement configuration in the serialized result.
+def build_summary(  # noqa: PLR0913
     *,
     baseline_ref: str,
     candidate_ref: str,
@@ -355,6 +368,7 @@ def build_summary(
     candidate_results: dict[str, dict[str, Any]],
     max_regression_pct: float | None,
 ) -> dict[str, Any]:
+    """Collect measurements and flag regressions beyond the threshold."""
     case_summaries = {}
     regressions = []
     for case in cases:
@@ -407,6 +421,7 @@ def print_table(
     baseline_results: dict[str, dict[str, Any]],
     candidate_results: dict[str, dict[str, Any]],
 ) -> None:
+    """Display throughput and percentage changes in aligned columns."""
     rows = [
         (
             case,
@@ -437,6 +452,7 @@ def print_table(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse git refs, benchmark settings, and output options."""
     parser = argparse.ArgumentParser(
         description="Compare benchmark throughput between two git refs."
     )
@@ -486,26 +502,100 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
-    root = repo_root()
-    database_arg = args.file
+def validate_args(args: argparse.Namespace) -> None:
+    """Reject invalid workload sizes and regression thresholds."""
+    if args.batch_size <= 0:
+        msg = "--batch-size must be positive"
+        raise ValueError(msg)
+    if args.count <= 0:
+        msg = "--count must be positive"
+        raise ValueError(msg)
+    if args.repeats <= 0:
+        msg = "--repeats must be positive"
+        raise ValueError(msg)
+    if args.warmups < 0:
+        msg = "--warmups must be non-negative"
+        raise ValueError(msg)
+    if args.max_regression_pct is not None and args.max_regression_pct < 0:
+        msg = "--max-regression-pct must be non-negative"
+        raise ValueError(msg)
+
+
+def report_results(
+    args: argparse.Namespace,
+    summary: dict[str, Any],
+    results: dict[str, dict[str, dict[str, Any]]],
+    database: Path,
+    cases: list[str],
+) -> None:
+    """Write the requested report and fail when a regression exceeds its limit."""
+    if args.json_output is not None:
+        args.json_output.write_text(json.dumps(summary, indent=2) + "\n")
+
+    if args.json:
+        print(json.dumps(summary, indent=2))
+    else:
+        print()
+        print(f"Database: {database}")
+        print(
+            textwrap.dedent(
+                f"""\
+                Count: {args.count:,}
+                Batch size: {args.batch_size:,}
+                Repeats: {args.repeats:,}
+                Warmups: {args.warmups:,}
+                Workload: {args.workload}
+                """
+            ).rstrip()
+        )
+        print()
+        baseline_label = args.baseline_ref
+        candidate_label = args.candidate_ref
+        if baseline_label == candidate_label:
+            baseline_label = f"baseline {baseline_label}"
+            candidate_label = f"candidate {candidate_label}"
+        print_table(
+            cases,
+            baseline_label,
+            candidate_label,
+            results["baseline"],
+            results["candidate"],
+        )
+
+    if summary["regressions"]:
+        print("Benchmark regressions exceeded threshold:", file=sys.stderr)
+        for regression in summary["regressions"]:
+            case = regression["case"]
+            if regression.get("reason") == "candidate_unsupported":
+                print(
+                    f"  {case}: candidate does not support this case", file=sys.stderr
+                )
+            else:
+                print(
+                    f"  {case}: {regression['delta_percent']:+.1f}% "
+                    f"(threshold -{regression['max_regression_pct']:.1f}%)",
+                    file=sys.stderr,
+                )
+        raise SystemExit(1)
+
+
+def resolve_benchmark_database(file: str | None, root: Path) -> Path:
+    """Resolve explicit database paths relative to the repository root."""
+    database_arg = file
     if database_arg is not None:
         database_path = Path(database_arg).expanduser()
         if not database_path.is_absolute():
             database_path = root / database_path
         database_arg = str(database_path)
-    database = resolve_database(database_arg)
-    if args.batch_size <= 0:
-        raise ValueError("--batch-size must be positive")
-    if args.count <= 0:
-        raise ValueError("--count must be positive")
-    if args.repeats <= 0:
-        raise ValueError("--repeats must be positive")
-    if args.warmups < 0:
-        raise ValueError("--warmups must be non-negative")
-    if args.max_regression_pct is not None and args.max_regression_pct < 0:
-        raise ValueError("--max-regression-pct must be non-negative")
+    return resolve_database(database_arg)
+
+
+def main() -> None:
+    """Build both refs and compare the requested workloads."""
+    args = parse_args()
+    root = repo_root()
+    database = resolve_benchmark_database(args.file, root)
+    validate_args(args)
 
     cases = args.case or list(DEFAULT_CASES)
     refs = [
@@ -590,54 +680,7 @@ def main() -> None:
         max_regression_pct=args.max_regression_pct,
     )
 
-    if args.json_output is not None:
-        args.json_output.write_text(json.dumps(summary, indent=2) + "\n")
-
-    if args.json:
-        print(json.dumps(summary, indent=2))
-    else:
-        print()
-        print(f"Database: {database}")
-        print(
-            textwrap.dedent(
-                f"""\
-                Count: {args.count:,}
-                Batch size: {args.batch_size:,}
-                Repeats: {args.repeats:,}
-                Warmups: {args.warmups:,}
-                Workload: {args.workload}
-                """
-            ).rstrip()
-        )
-        print()
-        baseline_label = args.baseline_ref
-        candidate_label = args.candidate_ref
-        if baseline_label == candidate_label:
-            baseline_label = f"baseline {baseline_label}"
-            candidate_label = f"candidate {candidate_label}"
-        print_table(
-            cases,
-            baseline_label,
-            candidate_label,
-            results["baseline"],
-            results["candidate"],
-        )
-
-    if summary["regressions"]:
-        print("Benchmark regressions exceeded threshold:", file=sys.stderr)
-        for regression in summary["regressions"]:
-            case = regression["case"]
-            if regression.get("reason") == "candidate_unsupported":
-                print(
-                    f"  {case}: candidate does not support this case", file=sys.stderr
-                )
-            else:
-                print(
-                    f"  {case}: {regression['delta_percent']:+.1f}% "
-                    f"(threshold -{regression['max_regression_pct']:.1f}%)",
-                    file=sys.stderr,
-                )
-        raise SystemExit(1)
+    report_results(args, summary, results, database, cases)
 
 
 if __name__ == "__main__":

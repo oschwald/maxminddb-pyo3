@@ -56,5 +56,27 @@ testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 addopts = "--import-mode=importlib"
 
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "COM812",  # The formatter handles trailing commas.
+    "CPY001",  # Copyright headers are not required on every file.
+    "D203",    # Conflicts with D211.
+    "D213",    # Conflicts with D212.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The stub is the Python-facing API documentation for the Rust extension.
+"maxminddb_rust.pyi" = ["PYI021"]
+# Test names describe their cases, and pytest uses assert for expectations.
+"tests/*" = ["D", "S101"]
+# Preserve the assertion style of the copied upstream unittest suite.
+"tests/maxmind/*" = ["PT009", "PT027"]
+# These programs intentionally print benchmark results and example output.
+"benchmarks/*" = ["T201"]
+"examples/*" = ["T201"]
+# This helper is imported by directly executed scripts, not a package.
+"benchmarks/_common.py" = ["INP001"]
+
 [tool.uv]
 cache-keys = [{file = "pyproject.toml"}, {file = "Cargo.toml"}, {file = "**/*.rs"}]

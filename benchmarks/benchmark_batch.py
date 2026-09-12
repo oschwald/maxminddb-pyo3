@@ -1,4 +1,7 @@
 #!/usr/bin/python
+"""Compare individual and batched lookup throughput."""
+
+from __future__ import annotations
 
 import argparse
 import random
@@ -6,12 +9,13 @@ import socket
 import struct
 import timeit
 
-import maxminddb_rust
-
 from _common import resolve_database
 
+import maxminddb_rust
 
-def generate_ips(count):
+
+def generate_ips(count: int) -> list[str]:
+    """Generate a reproducible sequence of random IPv4 addresses."""
     random.seed(0)
     return [
         socket.inet_ntoa(struct.pack("!L", random.getrandbits(32)))
@@ -30,7 +34,8 @@ parser.add_argument(
 
 args = parser.parse_args()
 if args.batch_size <= 0:
-    raise ValueError("--batch-size must be positive")
+    msg = "--batch-size must be positive"
+    raise ValueError(msg)
 
 database = resolve_database(args.file)
 reader = maxminddb_rust.open_database(database)
@@ -42,6 +47,7 @@ batches = [
 
 
 def lookup_batches() -> None:
+    """Look up the prepared IP addresses in batches."""
     for batch in batches:
         reader.get_many(batch)
 

@@ -1,4 +1,7 @@
 #!/usr/bin/python
+"""Measure full-record lookup throughput."""
+
+from __future__ import annotations
 
 import argparse
 import random
@@ -6,12 +9,13 @@ import socket
 import struct
 import timeit
 
-import maxminddb_rust
-
 from _common import resolve_database
 
+import maxminddb_rust
 
-def generate_ips(count):
+
+def generate_ips(count: int) -> list[str]:
+    """Generate a reproducible sequence of random IPv4 addresses."""
     random.seed(0)
     return [
         socket.inet_ntoa(struct.pack("!L", random.getrandbits(32)))
@@ -36,6 +40,7 @@ ips = generate_ips(args.count)
 
 
 def lookup_ip_addresses() -> None:
+    """Look up each prepared IP address."""
     for ip in ips:
         reader.get(ip)
 

@@ -1,4 +1,5 @@
 #!/usr/bin/python
+"""Compare full-record and selective-path decoding throughput."""
 
 import argparse
 import random
@@ -6,9 +7,9 @@ import socket
 import struct
 import timeit
 
-import maxminddb_rust
-
 from _common import resolve_database
+
+import maxminddb_rust
 
 parser = argparse.ArgumentParser(description="Benchmark maxminddb get vs get_path.")
 parser.add_argument("--count", default=250000, type=int, help="number of lookups")
@@ -21,7 +22,8 @@ parser.add_argument(
 
 args = parser.parse_args()
 if args.batch_size <= 0:
-    raise ValueError("--batch-size must be positive")
+    msg = "--batch-size must be positive"
+    raise ValueError(msg)
 
 random.seed(0)
 database = resolve_database(args.file)
@@ -38,32 +40,26 @@ batches = [
 ]
 
 
-def lookup_full():
+def lookup_full() -> None:
+    """Decode full records and extract their country codes."""
     for ip in ips:
-        try:
-            res = reader.get(ip)
-            if res:
-                res.get("country", {}).get("iso_code")
-        except ValueError:
-            pass
+        res = reader.get(ip)
+        if res:
+            res.get("country", {}).get("iso_code")
 
 
-def lookup_path():
+def lookup_path() -> None:
+    """Read country codes through individual path lookups."""
     path = ("country", "iso_code")
     for ip in ips:
-        try:
-            reader.get_path(ip, path)
-        except ValueError:
-            pass
+        reader.get_path(ip, path)
 
 
-def lookup_many_path():
+def lookup_many_path() -> None:
+    """Read country codes through batched path lookups."""
     path = ("country", "iso_code")
     for batch in batches:
-        try:
-            reader.get_many_path(batch, path)
-        except ValueError:
-            pass
+        reader.get_many_path(batch, path)
 
 
 print(f"Benchmarking with {args.count:,} lookups...")

@@ -20,8 +20,8 @@ The only change required is updating your import statement:
 ```python
 import maxminddb
 
-reader = maxminddb.open_database('/path/to/GeoIP2-City.mmdb')
-result = reader.get('8.8.8.8')
+reader = maxminddb.open_database("/path/to/GeoIP2-City.mmdb")
+result = reader.get("8.8.8.8")
 ```
 
 ### After (maxminddb-rust)
@@ -29,8 +29,8 @@ result = reader.get('8.8.8.8')
 ```python
 import maxminddb_rust
 
-reader = maxminddb_rust.open_database('/path/to/GeoIP2-City.mmdb')
-result = reader.get('8.8.8.8')
+reader = maxminddb_rust.open_database("/path/to/GeoIP2-City.mmdb")
+result = reader.get("8.8.8.8")
 ```
 
 That's it! All other code remains identical.
@@ -52,8 +52,8 @@ If you want to minimize changes initially, use an alias:
 import maxminddb_rust as maxminddb
 
 # Rest of your code remains unchanged
-reader = maxminddb.open_database('/path/to/GeoIP2-City.mmdb')
-result = reader.get('8.8.8.8')
+reader = maxminddb.open_database("/path/to/GeoIP2-City.mmdb")
+result = reader.get("8.8.8.8")
 ```
 
 This allows gradual migration while maintaining compatibility.
@@ -95,7 +95,7 @@ Then explicitly choose in your code:
 
 ```python
 import maxminddb_rust  # Use Rust implementation
-import maxminddb       # Use official implementation (if still needed)
+import maxminddb  # Use official implementation (if still needed)
 ```
 
 ## API Compatibility
@@ -140,11 +140,12 @@ import maxminddb
 from flask import Flask, request
 
 app = Flask(__name__)
-reader = maxminddb.open_database('/var/lib/GeoIP/GeoIP2-City.mmdb')
+reader = maxminddb.open_database("/var/lib/GeoIP/GeoIP2-City.mmdb")
 
-@app.route('/lookup')
+
+@app.route("/lookup")
 def lookup():
-    ip = request.args.get('ip')
+    ip = request.args.get("ip")
     result = reader.get(ip)
     return result
 ```
@@ -157,11 +158,12 @@ import maxminddb_rust
 from flask import Flask, request
 
 app = Flask(__name__)
-reader = maxminddb_rust.open_database('/var/lib/GeoIP/GeoIP2-City.mmdb')
+reader = maxminddb_rust.open_database("/var/lib/GeoIP/GeoIP2-City.mmdb")
 
-@app.route('/lookup')
+
+@app.route("/lookup")
 def lookup():
-    ip = request.args.get('ip')
+    ip = request.args.get("ip")
     result = reader.get(ip)
     return result
 ```
@@ -199,6 +201,7 @@ Check which one is imported:
 
 ```python
 import maxminddb_rust
+
 print(maxminddb_rust.__file__)
 ```
 

@@ -1,5 +1,4 @@
-"""
-Type stubs for maxminddb_rust.
+"""Type stubs for maxminddb_rust.
 
 This module provides a high-performance alternative to the maxminddb Python package,
 implemented in Rust using PyO3 with 100% API compatibility.
@@ -8,9 +7,9 @@ implemented in Rust using PyO3 with 100% API compatibility.
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from os import PathLike
 from types import TracebackType
-from typing import Any, BinaryIO, Iterable, Iterator, Literal, Optional, Sequence, Union
+from typing import Any, BinaryIO, Iterable, Iterator, Literal, Sequence
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - Match the extension export order.
     "Reader",
     "Metadata",
     "InvalidDatabaseError",
@@ -34,8 +33,6 @@ MODE_FD: Literal[16]
 class InvalidDatabaseError(RuntimeError):
     """Exception raised when the MaxMind DB file is invalid or corrupt."""
 
-    ...
-
 class Metadata:
     """Metadata about a MaxMind DB database."""
 
@@ -49,10 +46,12 @@ class Metadata:
     """The Unix epoch timestamp for when the database was built."""
 
     database_type: str
-    """A string identifying the database type (e.g., 'GeoIP2-City', 'GeoLite2-Country')."""
+    """A string identifying the database type (e.g., 'GeoIP2-City',
+    'GeoLite2-Country')."""
 
     ip_version: int
-    """The IP version of the data in a database. A value of 4 means IPv4 only; 6 supports both IPv4 and IPv6."""
+    """The IP version of the data in a database. A value of 4 means IPv4 only; 6
+    supports both IPv4 and IPv6."""
 
     node_count: int
     """The number of nodes in the search tree."""
@@ -63,26 +62,21 @@ class Metadata:
     @property
     def description(self) -> dict[str, str]:
         """A dictionary from locale codes to the database description in that locale."""
-        ...
 
     @property
     def languages(self) -> list[str]:
-        """A list of locale codes supported by the database for descriptions and other text."""
-        ...
+        """List the locale codes supported by the database."""
 
     @property
     def node_byte_size(self) -> int:
         """The size of a node in bytes."""
-        ...
 
     @property
     def search_tree_size(self) -> int:
         """The size of the search tree in bytes."""
-        ...
 
 class Reader:
-    """
-    A MaxMind DB database reader.
+    """A MaxMind DB database reader.
 
     Provides methods to query IP address information from MaxMind DB files.
     Supports memory-mapped files (MODE_AUTO/MODE_MMAP/MODE_MMAP_EXT) and
@@ -92,10 +86,9 @@ class Reader:
     """
 
     def __init__(
-        self, database: Union[str, PathLike[str], BinaryIO], mode: int = MODE_AUTO
+        self, database: str | PathLike[str] | BinaryIO, mode: int = ...
     ) -> None:
-        """
-        Initialize a Reader for a MaxMind DB file.
+        """Initialize a Reader for a MaxMind DB file.
 
         Args:
             database: Path to the MaxMind DB file, or a readable binary object
@@ -107,17 +100,15 @@ class Reader:
             IOError: If the database file cannot be read or memory-mapped.
             InvalidDatabaseError: If the file is not a valid MaxMind DB file.
             ValueError: If an unsupported mode is specified.
+
         """
-        ...
 
     @property
     def closed(self) -> bool:
         """True if the database has been closed, False otherwise."""
-        ...
 
-    def get(self, ip_address: Union[str, IPv4Address, IPv6Address]) -> Optional[Any]:
-        """
-        Query the database for information about an IP address.
+    def get(self, ip_address: str | IPv4Address | IPv6Address) -> Any | None:  # noqa: ANN401 - Records have database-defined shapes.
+        """Query the database for information about an IP address.
 
         Args:
             ip_address: The IP address to look up. May be a string (e.g., '1.2.3.4')
@@ -130,14 +121,13 @@ class Reader:
         Raises:
             ValueError: If the database has been closed or the IP address is invalid.
             InvalidDatabaseError: If the database data is corrupt or invalid.
+
         """
-        ...
 
     def get_with_prefix_len(
-        self, ip_address: Union[str, IPv4Address, IPv6Address]
-    ) -> tuple[Optional[Any], int]:
-        """
-        Query the database for information about an IP address and return the network prefix length.
+        self, ip_address: str | IPv4Address | IPv6Address
+    ) -> tuple[Any | None, int]:
+        """Look up an IP address and its network prefix length.
 
         Args:
             ip_address: The IP address to look up. May be a string (e.g., '1.2.3.4')
@@ -151,40 +141,40 @@ class Reader:
         Raises:
             ValueError: If the database has been closed or the IP address is invalid.
             InvalidDatabaseError: If the database data is corrupt or invalid.
+
         """
-        ...
 
     def get_path(
         self,
-        ip_address: Union[str, IPv4Address, IPv6Address],
-        path: Sequence[Union[str, int]],
-    ) -> Optional[Any]:
-        """
-        Query the database for a specific path within the record.
+        ip_address: str | IPv4Address | IPv6Address,
+        path: Sequence[str | int],
+    ) -> Any | None:  # noqa: ANN401 - Records have database-defined shapes.
+        """Query the database for a specific path within the record.
 
         This method is more efficient than get() when you only need a specific field
         (e.g., country code) from the record, as it avoids decoding the entire record.
 
         Args:
             ip_address: The IP address to look up.
-            path: A sequence (tuple or list) of strings or integers representing the path to the data.
+            path: A sequence (tuple or list) of strings or integers
+            representing the path to the data.
 
         Returns:
-            The value at the specified path, or None if the IP address or path is not found.
+            The value at the specified path, or None if the IP address or
+            path is not found.
 
         Example:
             >>> reader.get_path('8.8.8.8', ('country', 'iso_code'))
             'US'
             >>> reader.get_path('8.8.8.8', ('subdivisions', 0, 'iso_code'))
             'CA'
+
         """
-        ...
 
     def get_many(
-        self, ips: Iterable[Union[str, IPv4Address, IPv6Address]]
-    ) -> list[Optional[Any]]:
-        """
-        Query the database for multiple IP addresses in a single batch operation.
+        self, ips: Iterable[str | IPv4Address | IPv6Address]
+    ) -> list[Any | None]:
+        """Query the database for multiple IP addresses in a single batch operation.
 
         This is an extension method not available in the original maxminddb module.
         It provides better performance than calling get() repeatedly by reducing
@@ -202,16 +192,15 @@ class Reader:
         Raises:
             ValueError: If the database has been closed or any IP address is invalid.
             InvalidDatabaseError: If the database data is corrupt or invalid.
+
         """
-        ...
 
     def get_many_path(
         self,
-        ips: Iterable[Union[str, IPv4Address, IPv6Address]],
-        path: Sequence[Union[str, int]],
-    ) -> list[Optional[Any]]:
-        """
-        Query the database for a specific path for multiple IP addresses.
+        ips: Iterable[str | IPv4Address | IPv6Address],
+        path: Sequence[str | int],
+    ) -> list[Any | None]:
+        """Query the database for a specific path for multiple IP addresses.
 
         This extension combines get_many() batching with get_path() selective
         decoding. It parses the path once and avoids decoding full records when
@@ -229,61 +218,54 @@ class Reader:
         Raises:
             ValueError: If the database has been closed or any IP address is invalid.
             InvalidDatabaseError: If the database data is corrupt or invalid.
+
         """
-        ...
 
     def metadata(self) -> Metadata:
-        """
-        Get metadata about the MaxMind DB database.
+        """Get metadata about the MaxMind DB database.
 
         Returns:
             A Metadata object containing information about the database.
 
         Raises:
             OSError: If the database has been closed.
+
         """
-        ...
 
     def close(self) -> None:
-        """
-        Close the database and release resources.
+        """Close the database and release resources.
 
         Closes the MaxMind DB file handle and releases associated resources.
         After calling this method, attempting to call get() or other query
         methods will raise a ValueError.
         """
-        ...
 
-    def __enter__(self) -> Reader:
-        """
-        Enter the context manager (for use with 'with' statement).
+    def __enter__(self) -> Reader:  # noqa: PYI034 - Reader cannot be subclassed.
+        """Enter the context manager (for use with 'with' statement).
 
         Returns:
             The Reader object itself.
 
         Raises:
             ValueError: If attempting to reopen a closed database.
+
         """
-        ...
 
     def __exit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> None:
-        """
-        Exit the context manager (for use with 'with' statement).
+        """Exit the context manager (for use with 'with' statement).
 
         Automatically closes the database when exiting the 'with' block.
         """
-        ...
 
     def __iter__(
         self,
-    ) -> Iterator[tuple[Union[IPv4Network, IPv6Network], Any]]:
-        """
-        Iterate over all networks in the database.
+    ) -> Iterator[tuple[IPv4Network | IPv6Network, Any]]:
+        """Iterate over all networks in the database.
 
         Returns an iterator that yields (network, data) tuples for all networks
         in the database. Networks are represented as ipaddress.IPv4Network or
@@ -294,14 +276,11 @@ class Reader:
 
         Raises:
             ValueError: If the database has been closed.
-        """
-        ...
 
-def open_database(
-    database: Union[str, PathLike[str], BinaryIO], mode: int = MODE_AUTO
-) -> Reader:
-    """
-    Open a MaxMind DB database file.
+        """
+
+def open_database(database: str | PathLike[str] | BinaryIO, mode: int = ...) -> Reader:
+    """Open a MaxMind DB database file.
 
     Args:
         database: Path to the MaxMind DB file, or a readable binary object for
@@ -339,5 +318,5 @@ def open_database(
         >>> # Specify mode explicitly
         >>> reader = maxminddb_rust.open_database('/path/to/GeoIP2-City.mmdb',
         ...                                       mode=maxminddb_rust.MODE_MEMORY)
+
     """
-    ...

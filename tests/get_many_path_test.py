@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import os
 from ipaddress import ip_address
+from pathlib import Path
 
 import pytest
 
 import maxminddb_rust
 
 
-def city_db_path() -> str:
-    return os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+def city_db_path() -> Path:
+    return Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
 
 
 def test_get_many_path_matches_individual_get_path_and_preserves_order() -> None:
@@ -45,11 +43,12 @@ def test_get_many_path_accepts_tuple_input() -> None:
 
 
 def test_get_many_path_rejects_string_instead_of_iterable_of_ips() -> None:
-    with maxminddb_rust.open_database(city_db_path()) as reader:
-        with pytest.raises(TypeError, match="iterable of strings or ipaddress objects"):
-            reader.get_many_path(  # type: ignore[arg-type]
-                "81.2.69.142", ("country", "iso_code")
-            )
+    with maxminddb_rust.open_database(city_db_path()) as reader, pytest.raises(
+        TypeError, match="iterable of strings or ipaddress objects"
+    ):
+        reader.get_many_path(  # type: ignore[arg-type]
+            "81.2.69.142", ("country", "iso_code")
+        )
 
 
 def test_get_many_path_rejects_bytes_like_containers() -> None:
@@ -62,20 +61,18 @@ def test_get_many_path_rejects_bytes_like_containers() -> None:
 
 
 def test_get_many_path_rejects_invalid_ip() -> None:
-    with maxminddb_rust.open_database(city_db_path()) as reader:
-        with pytest.raises(
-            ValueError,
-            match="'not_ip' does not appear to be an IPv4 or IPv6 address",
-        ):
-            reader.get_many_path(["81.2.69.142", "not_ip"], ("country", "iso_code"))
+    with maxminddb_rust.open_database(city_db_path()) as reader, pytest.raises(
+        ValueError,
+        match="'not_ip' does not appear to be an IPv4 or IPv6 address",
+    ):
+        reader.get_many_path(["81.2.69.142", "not_ip"], ("country", "iso_code"))
 
 
 def test_get_many_path_rejects_invalid_path() -> None:
-    with maxminddb_rust.open_database(city_db_path()) as reader:
-        with pytest.raises(
-            TypeError, match="Path elements must be strings or integers"
-        ):
-            reader.get_many_path(["81.2.69.142"], ("country", True))
+    with maxminddb_rust.open_database(city_db_path()) as reader, pytest.raises(
+        TypeError, match="Path elements must be strings or integers"
+    ):
+        reader.get_many_path(["81.2.69.142"], ("country", True))
 
 
 def test_get_many_path_closed_db() -> None:

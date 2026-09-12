@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
 from ipaddress import ip_address
+from pathlib import Path
 
 import pytest
 
@@ -9,9 +9,7 @@ import maxminddb_rust
 
 
 def test_get_many_matches_individual_get_and_preserves_order() -> None:
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
 
     with maxminddb_rust.open_database(db_path) as reader:
         ips = ["81.2.69.142", "2001:2b8::", "1.1.1.1", "81.2.69.142"]
@@ -22,9 +20,7 @@ def test_get_many_matches_individual_get_and_preserves_order() -> None:
 
 
 def test_get_many_accepts_ipaddress_objects() -> None:
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
 
     with maxminddb_rust.open_database(db_path) as reader:
         ips = [ip_address("81.2.69.142"), ip_address("2001:2b8::")]
@@ -35,9 +31,7 @@ def test_get_many_accepts_ipaddress_objects() -> None:
 
 
 def test_get_many_accepts_tuple_input() -> None:
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
 
     with maxminddb_rust.open_database(db_path) as reader:
         ips = ("81.2.69.142", "2001:2b8::", "1.1.1.1")
@@ -48,19 +42,16 @@ def test_get_many_accepts_tuple_input() -> None:
 
 
 def test_get_many_rejects_string_instead_of_iterable_of_ips() -> None:
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
 
-    with maxminddb_rust.open_database(db_path) as reader:
-        with pytest.raises(TypeError, match="iterable of strings or ipaddress objects"):
-            reader.get_many("81.2.69.142")  # type: ignore[arg-type]
+    with maxminddb_rust.open_database(db_path) as reader, pytest.raises(
+        TypeError, match="iterable of strings or ipaddress objects"
+    ):
+        reader.get_many("81.2.69.142")  # type: ignore[arg-type]
 
 
 def test_get_many_rejects_bytes_like_containers() -> None:
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
 
     with maxminddb_rust.open_database(db_path) as reader:
         for ips in (b"81.2.69.142", bytearray(b"81.2.69.142")):
@@ -71,22 +62,17 @@ def test_get_many_rejects_bytes_like_containers() -> None:
 
 
 def test_get_many_rejects_invalid_ip() -> None:
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
 
-    with maxminddb_rust.open_database(db_path) as reader:
-        with pytest.raises(
-            ValueError,
-            match="'not_ip' does not appear to be an IPv4 or IPv6 address",
-        ):
-            reader.get_many(["81.2.69.142", "not_ip"])
+    with maxminddb_rust.open_database(db_path) as reader, pytest.raises(
+        ValueError,
+        match="'not_ip' does not appear to be an IPv4 or IPv6 address",
+    ):
+        reader.get_many(["81.2.69.142", "not_ip"])
 
 
 def test_get_many_closed_db() -> None:
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "GeoIP2-City-Test.mmdb"
-    )
+    db_path = Path(__file__).parent / "data" / "test-data" / "GeoIP2-City-Test.mmdb"
 
     reader = maxminddb_rust.open_database(db_path)
     reader.close()
@@ -96,13 +82,12 @@ def test_get_many_closed_db() -> None:
 
 
 def test_get_many_rejects_ipv6_in_ipv4_database() -> None:
-    db_path = os.path.join(
-        os.path.dirname(__file__), "data", "test-data", "MaxMind-DB-test-ipv4-24.mmdb"
+    db_path = (
+        Path(__file__).parent / "data" / "test-data" / "MaxMind-DB-test-ipv4-24.mmdb"
     )
 
-    with maxminddb_rust.open_database(db_path) as reader:
-        with pytest.raises(
-            ValueError,
-            match="You attempted to look up an IPv6 address in an IPv4-only database",
-        ):
-            reader.get_many(["1.1.1.1", "2001::"])
+    with maxminddb_rust.open_database(db_path) as reader, pytest.raises(
+        ValueError,
+        match="You attempted to look up an IPv6 address in an IPv4-only database",
+    ):
+        reader.get_many(["1.1.1.1", "2001::"])

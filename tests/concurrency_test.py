@@ -8,7 +8,6 @@ from time import sleep
 
 import maxminddb_rust
 
-
 DATA_DIR = Path(__file__).parent / "data" / "test-data"
 CITY_DB = DATA_DIR / "GeoIP2-City-Test.mmdb"
 
@@ -57,7 +56,7 @@ def test_close_during_concurrent_lookups_only_reports_closed_reader() -> None:
                 reader.get("81.2.69.142")
                 reader.get_path("81.2.69.142", path)
                 operations += 2
-            except ValueError as exc:
+            except ValueError as exc:  # noqa: PERF203 - Closing races with each read.
                 if str(exc) != expected_error:
                     raise
                 stop.set()
