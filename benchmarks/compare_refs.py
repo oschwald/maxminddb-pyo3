@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import subprocess
 import sys
 import tempfile
@@ -516,8 +517,10 @@ def validate_args(args: argparse.Namespace) -> None:
     if args.warmups < 0:
         msg = "--warmups must be non-negative"
         raise ValueError(msg)
-    if args.max_regression_pct is not None and args.max_regression_pct < 0:
-        msg = "--max-regression-pct must be non-negative"
+    if args.max_regression_pct is not None and (
+        not math.isfinite(args.max_regression_pct) or args.max_regression_pct < 0
+    ):
+        msg = "--max-regression-pct must be finite and non-negative"
         raise ValueError(msg)
 
 
