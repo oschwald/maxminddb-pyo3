@@ -5,6 +5,26 @@ official
 [MaxMind-DB-Reader-python](https://github.com/maxmind/MaxMind-DB-Reader-python)
 repository to verify API compatibility.
 
+The latest sync was checked against upstream commit
+[`00cb0f1`](https://github.com/maxmind/MaxMind-DB-Reader-python/commit/00cb0f15b3047ec4eeeea80b8375740ef84e7e84)
+(3.2.0) on September 12, 2026. It adds the reader's payload amplification,
+pointer fan-out, resource-limit boundary, truncated search-tree, and invalid
+tree-metadata tests. Resource errors use this binding's `InvalidDatabaseError`
+messages, and the tests retain Python 3.8-compatible syntax and all supported
+open modes.
+
+The upstream resource-limit probe for older system `libmaxminddb` versions is
+unnecessary here: this extension uses the Rust crate pinned in `Cargo.lock`.
+The hostile fixtures retain upstream's time and address-space guards.
+
+The upstream `decoder_test.py`, private buffer cleanup, and direct search-node
+tests exercise pure-Python internals that this extension does not expose. The
+upstream empty-search-tree acceptance test also differs from the Rust crate's
+metadata validation, which rejects zero-node databases. Existing tests in
+`tests/concurrency_test.py` already cover shared-reader lookups, iteration, and
+concurrent close; upstream's separate C-extension threading tests were reviewed
+without copying their implementation-specific setup.
+
 ## License
 
 The tests in this directory are copyright MaxMind, Inc. and licensed under the
